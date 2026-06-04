@@ -1,4 +1,22 @@
-# Changelog
+# Servy fork — Changelog
+
+> Hard fork of [aelassas/servy](https://github.com/aelassas/servy). This top section records **fork-specific** changes. Upstream Servy's full release history is preserved below under [Changelog (upstream)](#changelog-upstream). Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [Unreleased] — fork
+
+### Added
+- `VISION.md` — architecture-of-record for the cross-platform / multi-arch / Velopack-integration direction.
+
+### Changed
+- Fork-forward rewrite of `README.md`, `NOTES.md`, and `ROADMAP.md` to establish the fork's identity and vision; `setup/*/README.md` de-branded as fork local-test notes.
+- Repository hardening / lockdown — branch + tag rulesets, SHA-pinned GitHub Actions (commit `231c0a9b`).
+
+### Notes
+- The fork was created from upstream `main` @ `c61f0562` (Servy 8.4 line, 2026-05-19) and is otherwise **code-identical to upstream 8.4** — no product behavior has diverged. Released, signed Windows binaries come from upstream.
+
+---
+
+# Changelog (upstream)
 
 ## [Servy 8.4](https://github.com/aelassas/servy/releases/tag/v8.4)
 

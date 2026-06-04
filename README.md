@@ -1,189 +1,108 @@
-[![build](https://github.com/aelassas/servy/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/aelassas/servy/actions/workflows/build.yml)
-[![test](https://github.com/aelassas/servy/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/aelassas/servy/actions/workflows/test.yml)
-[![security](https://github.com/aelassas/servy/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/aelassas/servy/actions/workflows/security.yml)
-[![release](https://github.com/aelassas/servy/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/aelassas/servy/actions/workflows/release.yml)
-[![](https://img.shields.io/badge/docs-wiki-brightgreen)](https://github.com/aelassas/servy/wiki)
+[![build](https://github.com/bilbospocketses/servy/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/bilbospocketses/servy/actions/workflows/build.yml)
+[![test](https://github.com/bilbospocketses/servy/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/bilbospocketses/servy/actions/workflows/test.yml)
+[![License](https://img.shields.io/github/license/bilbospocketses/servy)](LICENSE.txt)
 
-<!--
-[![build](https://github.com/aelassas/servy/actions/workflows/build.yml/badge.svg)](https://github.com/aelassas/servy/actions/workflows/build.yml) 
-[![test](https://github.com/aelassas/servy/actions/workflows/test.yml/badge.svg)](https://github.com/aelassas/servy/actions/workflows/test.yml)
-[![Build Status](https://aelassas.visualstudio.com/servy/_apis/build/status%2Faelassas.servy?branchName=main)](https://aelassas.visualstudio.com/servy/_build/latest?definitionId=4&branchName=main) 
-[![](https://raw.githubusercontent.com/aelassas/servy/refs/heads/loc/badge.svg)](https://github.com/aelassas/servy/actions/workflows/loc.yml) 
-[![codecov](https://codecov.io/gh/aelassas/servy/graph/badge.svg?token=26WZX2V4BG)](https://codecov.io/gh/aelassas/servy)
-[![codecov](https://img.shields.io/codecov/c/github/aelassas/servy/main?label=coverage&t=4)](https://codecov.io/gh/aelassas/servy)
-[![coveralls](https://coveralls.io/repos/github/aelassas/servy/badge.svg?branch=main)](https://coveralls.io/github/aelassas/servy?branch=main)
+# Servy &nbsp;<sub>·&nbsp;`bilbospocketses` fork</sub>
 
-[![scoop](https://github.com/aelassas/servy/actions/workflows/scoop.yml/badge.svg)](https://github.com/aelassas/servy/actions/workflows/scoop.yml)
-[![](https://img.shields.io/badge/docs-wiki-brightgreen)](https://github.com/aelassas/servy/wiki)
+> **Hard fork of [aelassas/servy](https://github.com/aelassas/servy) by Akram El Assas**, extending Servy toward **cross-platform** operation, **multi-architecture** support, and **Velopack integration**. This fork's released Windows binaries still come from upstream — see [Relationship to upstream](#relationship-to-upstream).
+>
+> 📐 Direction lives in **[VISION.md](VISION.md)** (architecture-of-record) · **[ROADMAP.md](ROADMAP.md)** (plan) · **[NOTES.md](NOTES.md)** (rationale).
 
-[![sonar](https://img.shields.io/sonar/quality_gate/aelassas_servy?server=https%3A%2F%2Fsonarcloud.io&label=sonar)](https://sonarcloud.io/summary/new_code?id=aelassas_servy)
-[![winget](https://github.com/aelassas/servy/actions/workflows/winget.yml/badge.svg)](https://github.com/aelassas/servy/actions/workflows/winget.yml)
-[![choco](https://github.com/aelassas/servy/actions/workflows/choco.yml/badge.svg)](https://github.com/aelassas/servy/actions/workflows/choco.yml)
-[![bump-version](https://github.com/aelassas/servy/actions/workflows/bump-version.yml/badge.svg)](https://github.com/aelassas/servy/actions/workflows/bump-version.yml)
-[![release](https://github.com/aelassas/servy/actions/workflows/release.yml/badge.svg)](https://github.com/aelassas/servy/actions/workflows/release.yml)
+Servy lets you run any app as a native Windows service with full control over the working directory, startup type, process priority, logging, health checks, environment variables, dependencies, pre-/post-launch and pre-/post-stop hooks, and parameters. It is a full-featured alternative to NSSM, WinSW, and FireDaemon Pro, with a desktop app, a CLI, a PowerShell module, and a Manager app for monitoring services in real time.
 
-[![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/aelassas/servy/total)](https://github.com/aelassas/servy/releases)
-[![GitHub Release](https://img.shields.io/github/v/release/aelassas/servy)](https://github.com/aelassas/servy/releases/latest)
-[![License](https://img.shields.io/github/license/aelassas/servy)](https://github.com/aelassas/servy/blob/main/LICENSE.txt)
+That capability is **inherited from upstream Servy** — this fork has not changed it. What the fork adds is a *direction*: take Servy off the Windows-only island.
 
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/aelassas/servy/pulls)
-[![](https://img.shields.io/badge/docs-wiki-brightgreen)](https://github.com/aelassas/servy/wiki)
+## Why this fork?
 
-[![security](https://github.com/aelassas/servy/actions/workflows/security.yml/badge.svg)](https://github.com/aelassas/servy/actions/workflows/security.yml)
--->
+Upstream Servy is, by design and by its maintainer's stated identity, a **Windows-only** product — Windows Service Control Manager, Active Directory / gMSA accounts, the Windows Event Log, x64 only. It is excellent at that, and there is no upstream appetite for changing it.
 
+This fork exists to take the same well-built service-wrapper core somewhere upstream's roadmap does not go:
 
-<p align="center">
-  <img src="https://servy-win.github.io/servy-tiny.png?v=4" alt="Servy">
-  ⭐ Don't forget to give us a star on GitHub. It costs nothing but means a lot and helps the project grow!
-</p>
-<p align="center">
-  <a href="https://www.youtube.com/watch?v=biHq17j4RbI" target="_blank">
-    <img src="https://img.shields.io/badge/Watch%20Demo-0C0C0C?style=for-the-badge&logo=youtube" alt="Watch Demo on YouTube">
-  </a>
-</p>
+1. **Cross-platform** — run the same service/daemon manager on **Linux (systemd)** and **macOS (launchd)**, not just Windows.
+2. **Multi-architecture** — **arm64** alongside the existing x86/x64.
+3. **Velopack integration** — merge packaging/install/update (**[Velopack](https://github.com/bilbospocketses/velopack)**, a sister fork) with service/daemon management (Servy) into a single tool.
 
-# Servy
+The detailed architecture-of-record — what is Windows-bound today, what each target looks like, and the open questions — is in **[VISION.md](VISION.md)**. See **[NOTES.md](NOTES.md)** for the longer rationale.
 
-Servy lets you run any app as a native Windows service with full control over the working directory, startup type, process priority, logging, health checks, environment variables, dependencies, pre-launch and post-launch hooks, pre-stop and post-stop hooks, and parameters. It's designed to be a full-featured alternative to NSSM, WinSW, and FireDaemon Pro.
+> ⚠️ **Status — direction, not shipped capability.** This fork currently tracks upstream **Servy 8.4** and adds only repository hardening. **None** of the cross-platform / multi-arch / Velopack work has landed yet. These documents describe where the fork is going, not what it does today.
 
-Servy is digitally signed using a trusted code-signing certificate provided by the SignPath Foundation. This ensures that all Servy executables and installers are verified and secure, giving you peace of mind when using the tool.
+## Relationship to upstream
 
-Servy offers a desktop app, a CLI, and a PowerShell module that let you create, configure, and manage Windows services interactively or through scripts and CI/CD pipelines. It also includes a Manager app for easily monitoring and managing all installed services in real time.
+- **Code:** This fork is **code-identical to upstream Servy 8.4** (upstream `main` as of 2026-05-19), plus a single repository-lockdown commit. No product behavior has diverged yet.
+- **Binaries:** **Released, code-signed Windows binaries come from upstream** — [aelassas/servy releases](https://github.com/aelassas/servy/releases) (signed by the SignPath Foundation) and the public **WinGet / Chocolatey / Scoop** packages, which are published under upstream's identity. **This fork has not published its own releases or packages.**
+- **Docs:** The shared Windows feature set is documented in [upstream's wiki](https://github.com/aelassas/servy/wiki). Fork-specific direction lives in this repo (VISION / ROADMAP / NOTES / CHANGELOG).
+- To run **this fork's** tree, [build from source](#getting-started-build-from-source).
 
-Servy continuously monitors your app, restarting it automatically if it crashes, hangs, or stops. It is perfect for keeping non-service apps running in the background and ensuring they start automatically at system boot, even before logon, without rewriting them as services. Use it to run Node.js, Python, .NET, Java, Go, Rust, PHP, or Ruby applications; keep web servers, background workers, sync tools, or daemons alive after reboots; and automate task runners, schedulers, or scripts in production with built-in health checks, logging, and restart policies.
+## Getting started (build from source)
 
-## Why?
-See [NOTES.md](NOTES.md) for details.
+This fork publishes no binaries yet, so run it from source with the **.NET 10 SDK** (the exact pinned version is in `global.json`):
 
-## Getting Started
-Download the latest release from [GitHub](https://github.com/aelassas/servy/releases/latest) or install via a package manager:
-
-**WinGet**
 ```powershell
-winget install servy
+git clone https://github.com/bilbospocketses/servy.git
+cd servy
+dotnet build Servy.sln -c Release
 ```
 
-**Chocolatey**
+Build outputs land under each project's `bin/Release/` directory (the desktop app, `Servy.Manager`, the CLI, and the Windows service host). Everything targets `net10.0-windows` / `win-x64` today — see [VISION.md](VISION.md) for why, and what it takes to change that.
+
+If you just want **Servy on Windows** (signed, released), use **upstream** instead:
+
 ```powershell
-choco install -y servy
+winget install servy      # installs upstream's signed build, not this fork
 ```
 
-**Scoop**
-```powershell
-scoop bucket add extras
-scoop update innounp
-scoop install servy
-```
+(or Chocolatey / Scoop — see upstream's [Installation Guide](https://github.com/aelassas/servy/wiki/Installation-Guide).)
 
-## Quick Example
+## Quick example (CLI)
 
-You can manage services using the [desktop app (GUI)](https://github.com/aelassas/servy/wiki/Servy-Desktop-App), the [CLI](https://github.com/aelassas/servy/wiki/Servy-CLI), or [PowerShell](https://github.com/aelassas/servy/wiki/Servy-PowerShell-Module).
-
-Here's a minimal example using the CLI to run a Node.js app as a Windows service:
+Servy's CLI (inherited from upstream) runs any app as a Windows service. For example, a Node.js server:
 
 ```powershell
 servy-cli install `
---name="MyService" `
---path="C:\Program Files\nodejs\node.exe" `
---startupDir="C:\MyServer" `
---params="C:\MyServer\server.js"    
+  --name="MyService" `
+  --path="C:\Program Files\nodejs\node.exe" `
+  --startupDir="C:\MyServer" `
+  --params="C:\MyServer\server.js"
+
+servy-cli start --name="MyService"
 ```
 
-This creates a service named `MyService` that runs your Node.js server in the background and starts automatically with Windows.
+More recipes for Python, Java, Go, and other stacks are in upstream's [Examples & Recipes](https://github.com/aelassas/servy/wiki/Examples-&-Recipes).
 
-Then start the service:
+## What Servy does (inherited baseline)
 
-```powershell
-servy-cli start --name="MyService"    
-```
+The full Windows feature set carried over from upstream Servy 8.4:
 
-Or from an **elevated** Command Prompt:
+* Clean desktop UI, plus a **Manager** app to monitor and manage all installed services
+* Real-time CPU/RAM monitoring with live graphs; live stdout/stderr **Console**; service **dependency tree** visualization
+* CLI and PowerShell module for scripting and CI/CD
+* Run any executable as a Windows service with custom name, description, startup type, priority, working directory, environment variables, and dependencies
+* Environment-variable expansion in parameters, process paths, and startup directories
+* Run as Local System, local/domain accounts, Active Directory accounts, or gMSAs
+* stdout/stderr redirection with size- and date-based log rotation
+* Pre-launch, post-launch, pre-stop, and post-stop hooks (retries, timeout, failure handling)
+* `Ctrl+C` for console apps (with descendant propagation), close-window for GUI apps, force-kill if unresponsive; orphan/zombie prevention
+* Health checks and automatic recovery; log browse/search by level, date, keyword
+* Export/Import service configurations; failure notifications via Windows toast and email
+* Compatible with Windows 7–11 x64 and Windows Server editions
 
-```cmd
-sc.exe start MyService
-```
+Full documentation for these features lives in [upstream's wiki](https://github.com/aelassas/servy/wiki).
 
-Explore more [examples and recipes](https://github.com/aelassas/servy/wiki/Examples-&-Recipes) for Python, Java, Go, and other popular frameworks.
+## Documentation
 
-## Quick Links
-* [Download](https://github.com/aelassas/servy/releases/latest)
-* [Installation Guide](https://github.com/aelassas/servy/wiki/Installation-Guide)
-* [Overview](https://github.com/aelassas/servy/wiki/Overview)
-* [Usage](https://github.com/aelassas/servy/wiki/Usage)
-* [FAQ](https://github.com/aelassas/servy/wiki/FAQ)
-* [Full Documentation](https://github.com/aelassas/servy/wiki)
+| Fork direction (this repo) | Shared feature set (upstream) |
+|---|---|
+| [VISION.md](VISION.md) — architecture-of-record | [Installation Guide](https://github.com/aelassas/servy/wiki/Installation-Guide) · [Overview](https://github.com/aelassas/servy/wiki/Overview) |
+| [ROADMAP.md](ROADMAP.md) — the plan | [Usage](https://github.com/aelassas/servy/wiki/Usage) · [FAQ](https://github.com/aelassas/servy/wiki/FAQ) |
+| [NOTES.md](NOTES.md) — rationale | [CLI](https://github.com/aelassas/servy/wiki/Servy-CLI) · [PowerShell](https://github.com/aelassas/servy/wiki/Servy-PowerShell-Module) |
+| [CHANGELOG.md](CHANGELOG.md) — fork + upstream history | [Examples & Recipes](https://github.com/aelassas/servy/wiki/Examples-&-Recipes) |
 
-## Features
-<!--
-When it comes to features, Servy brings together the best parts of tools like NSSM, WinSW, and FireDaemon Pro, all in one easy-to-use package. It combines the simplicity of open-source tools with the flexibility and power you'd expect from professional service managers. Below is a detailed list of all the features Servy supports.
--->
-* Clean, simple UI
-* Monitor and manage all installed services with Servy Manager
-* Real-time CPU and RAM monitoring with live performance graphs for installed services
-* Real-time service stdout and stderr output preview in Servy Console
-* Service dependency tree visualization with status indicators
-* CLI and PowerShell module for full scripting and automated deployments
-* Run any executable as a Windows service
-* Set service name, description, startup type, priority, working directory, environment variables, and dependencies
-* Environment variable expansion supported in parameters, process paths and startup directories
-* Run services as Local System, local or domain accounts, Active Directory accounts, or gMSAs
-* Redirect stdout/stderr to log files with automatic size-based and date-based rotations
-* Run pre-launch hook before starting the service, with retries, timeout, logging and failure handling
-* Run post-launch hook after the application starts successfully
-* Run pre-stop and post-stop hooks before the application stops and after the application stops
-* Supports `Ctrl+C` for command-line apps, close-window for GUI apps, and force kill if unresponsive
-* Supports `Ctrl+C` propagation to descendant processes of the wrapped process
-* Prevent orphaned/zombie processes with improved lifecycle management and ensuring resource cleanup
-* Health checks and automatic service recovery
-* Browse and search logs by level, date, and keyword for faster troubleshooting from Servy Manager
-* Export/Import service configurations for easy backups and automation
-* Service Event Notification alerts on service failures via Windows notifications and email
-* Compatible with Windows 7-11 x64 and Windows Server editions
+## Attribution
 
-## Changelog
+Servy was created by **[Akram El Assas](https://github.com/aelassas)** and remains an actively maintained upstream project at [aelassas/servy](https://github.com/aelassas/servy). This repository is an independent hard fork; all original copyright is retained.
 
-See [CHANGELOG.md](CHANGELOG.md).
-
-## Roadmap
-
-See [ROADMAP.md](ROADMAP.md).
-
-## Support & Contributing
-
-Servy is free and open-source. If you are using it in a commercial or revenue-generating context, or simply find it valuable, consider supporting the project via [GitHub Sponsors](https://github.com/sponsors/aelassas), [PayPal](https://www.paypal.me/aelassaspp), or [Buy Me a Coffee](https://www.buymeacoffee.com/aelassas).
-
-Open-source software requires time, effort, and resources to maintain. Every contribution, big or small, makes a difference and motivates continued work on features, bug fixes, and new ideas.
-
-If you have suggestions, issues, or would like to contribute, feel free to [open an issue](https://github.com/aelassas/servy/issues) or [submit a pull request](https://github.com/aelassas/servy/pulls).
-
-## Stats for Nerds
-
-[![LoC – Prod](https://raw.githubusercontent.com/aelassas/servy/refs/heads/loc/loc-prod.svg)](https://github.com/aelassas/servy/actions/workflows/loc.yml)
-[![LoC – Tests](https://raw.githubusercontent.com/aelassas/servy/refs/heads/loc/loc-tests.svg)](https://github.com/aelassas/servy/actions/workflows/loc.yml)
-[![LoC – Total](https://raw.githubusercontent.com/aelassas/servy/refs/heads/loc/loc-total.svg)](https://github.com/aelassas/servy/actions/workflows/loc.yml)
-[![GitHub Downloads](https://img.shields.io/github/downloads/aelassas/servy/total)](https://servy-win.github.io/stats)
+Upstream's released binaries are code-signed by the [SignPath Foundation](https://signpath.org/). If you find Servy valuable, **support the original author**: [GitHub Sponsors](https://github.com/sponsors/aelassas) · [PayPal](https://www.paypal.me/aelassaspp) · [Buy Me a Coffee](https://www.buymeacoffee.com/aelassas).
 
 ## License
 
-Servy is [MIT licensed](https://github.com/aelassas/servy/blob/main/LICENSE.txt).
-
-## Acknowledgments
-
-Thanks to [SignPath](https://signpath.io/?utm_source=foundation&utm_medium=github&utm_campaign=servy) for providing a free code signing service, and to the [SignPath Foundation](https://signpath.org/?utm_source=foundation&utm_medium=github&utm_campaign=servy) for supplying a free code signing certificate.
-
-Thanks to [JetBrains](https://www.jetbrains.com/) for providing an [open-source license](https://www.jetbrains.com/community/opensource/) for their tools. Their software made it much easier to profile, debug, and optimize Servy, helping improve its performance and stability. Having access to these professional tools really made a difference during development and saved a lot of time.
-
-Special thanks to everyone who tested Servy, reported issues, and suggested improvements on GitHub and Reddit. Your feedback and contributions have shaped the project and made it better with every release.
-
-<!--
-<p>
-  <a href="https://signpath.org/?utm_source=foundation&utm_medium=github&utm_campaign=servy">
-    <img alt="SignPath Foundation" src="https://aelassas.github.io/content/signpath.png?v=2" width="54" height="51">
-  </a>
-  &nbsp;
-  <a href="https://www.jetbrains.com/community/opensource/">
-    <img alt="JetBrains Open Source" src="https://aelassas.github.io/content/jetbrains.svg?v=3" width="54" height="51">
-  </a>
-</p>
--->
+[MIT](LICENSE.txt) — original copyright retained from upstream Servy.
