@@ -11,9 +11,9 @@ name: security
 
 on:
   push:
-    branches: [ "develop" ]
+    branches: [ "vnext" ]
   pull_request:
-    branches: [ "develop" ]
+    branches: [ "vnext" ]
   schedule:
     - cron: '30 4 * * 1' # Runs every Monday at 04:30 UTC
   workflow_dispatch:

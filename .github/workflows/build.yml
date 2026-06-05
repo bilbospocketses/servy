@@ -10,10 +10,10 @@ name: build
 on:
   push:
     branches:
-      - develop
+      - vnext
   pull_request:
     branches:
-      - develop
+      - vnext
   workflow_dispatch:
 
 permissions:
