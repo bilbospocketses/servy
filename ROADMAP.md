@@ -1,56 +1,43 @@
-## Roadmap
+# Roadmap — Servy (`bilbospocketses` fork)
 
-* [x] Windows Service creation via GUI
-* [x] Logging stdout/stderr with size-based rotation
-* [x] Logging stdout/stderr with date-based rotation ([#27](https://github.com/aelassas/servy/issues/27))
-* [x] Add max rotations option to specify the maximum number of rotated log files to keep ([#26](https://github.com/aelassas/servy/issues/26))
-* [x] Allow logging of stdout/stderr to the same file with size-based rotation ([#14](https://github.com/aelassas/servy/issues/14))
-* [x] Service monitoring and heartbeat checks
-* [x] Automatic restart on failure
-* [x] CLI and PowerShell module for full scripting and automated deployments
-* [x] Support environment variables for the wrapped process ([#1](https://github.com/aelassas/servy/issues/1))
-* [x] Support environment variable expansion in environment variables and process parameters ([#6](https://github.com/aelassas/servy/issues/6))
-* [x] Support environment variable expansion in process paths ([#35](https://github.com/aelassas/servy/issues/35))
-* [x] Support environment variable expansion in startup directories
-* [x] Support service dependencies
-* [x] Add "Log on as" configuration for Windows service
-* [x] Add support for DOMAIN\gMSA$ Group Managed Service Accounts
-* [x] Add support for pre-launch script execution before starting the service, with retries, timeout, and failure handling
-* [x] Add support for fire-and-forget pre-launch hooks when timeout is set to 0
-* [x] Add support for post-launch script execution after the process starts successfully
-* [x] Add support for pre-stop and post-stop hooks ([#36](https://github.com/aelassas/servy/issues/36))
-* [x] Service status query command in CLI
-* [x] Export/import service configurations
-* [x] Add Help, Documentation, and Check for Updates menus
-* [x] Add package manager support (WinGet, Chocolatey, Scoop) ([#9](https://github.com/aelassas/servy/issues/9))
-* [x] Add support for script or executable to run when the process fails to start
-* [x] Add Event ID to Info, Warning, and Error service logs
-* [x] Support using the same file for stdout and stderr ([#14](https://github.com/aelassas/servy/issues/14))
-* [x] Support Ctrl+C for command-line apps ([#20](https://github.com/aelassas/servy/issues/20))
-* [x] Add support for automatic delayed-start service startup type
-* [x] Upgrade to .NET 10 LTS
-* [x] Keep SCM responsive while stopping the main wrapped process and its process tree
-* [ ] Add a REST API for management-only API for status, health metrics, and lifecycle control (start/stop/restart)
-* [ ] Add a web dashboard for remote service control and real-time performance graphs
-* [ ] Add Servy Agent mode to manage multiple remote servers from a single instance
-* [ ] Add resource-based restart policies (e.g., trigger restart on RAM/CPU usage thresholds)
-* [ ] Add scheduled uptime windows and maintenance mode at specific times (start/stop services and pause health checks)
-* [x] Servy Manager App for managing services installed by Servy
-  * [x] Persist service configuration and track installed services in SQLite
-  * [x] Provide a "shortcut" to open the Servy Desktop App for full edits
-  * [x] Start, stop, restart, and uninstall services
-  * [x] Display service status and uptime
-  * [x] Add search and filter functionality for services
-  * [x] Provide Windows toast and email notifications for service events (failures)
-  * [x] Provide a log viewer
-  * [x] Support automatic recovery actions beyond simple restart (e.g., run scripts)
-  * [ ] Add advanced scheduling and triggers (start service on event, time, or condition)
-  * [x] Support service dependency management (start/stop order)
-  * [x] Add bulk service operations (start/stop/restart multiple services at once)
-  * [ ] Add a health monitoring dashboard *(long-term)*
-  * [x] Add PID column and copy PID action to services
-  * [x] Add real-time CPU and RAM monitoring with live performance graphs for services
-  * [x] Add a live Console tab for real-time stdout and stderr streaming
-  * [ ] Add `Security/Permissions` tab to view service ACLs and account privileges
-  * [ ] Add `Certificates` tab to manage service-specific certificates
-  * [x] Add `Dependencies` tab for service dependency tree visualization
+> Hard fork of [aelassas/servy](https://github.com/aelassas/servy). This is the **fork's** roadmap. The architecture behind each epic is in **[VISION.md](VISION.md)**; the rationale is in **[NOTES.md](NOTES.md)**.
+>
+> ⚠️ None of the fork epics below have started. The fork today tracks upstream Servy 8.4 + repository hardening.
+
+## Inherited baseline (upstream Servy 8.4)
+
+Servy already does all of this **on Windows**, inherited from upstream — this fork has not changed it:
+
+- Run any app as a Windows service (working directory, startup type, priority, env vars, dependencies; Local System / local / domain / AD / gMSA accounts)
+- Desktop app + Manager app + CLI + PowerShell module
+- stdout/stderr logging with size- and date-based rotation; health checks + automatic recovery; pre-/post-launch and pre-/post-stop hooks
+- Real-time CPU/RAM graphs, live console streaming, dependency-tree visualization
+- Export/import configuration; failure notifications (Windows toast + email); package-manager distribution (WinGet / Chocolatey / Scoop)
+
+For the complete upstream feature list and history, see [upstream's roadmap](https://github.com/aelassas/servy/blob/main/ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md).
+
+## Fork roadmap
+
+Three epics. See [VISION.md](VISION.md) for the architecture and open questions behind each.
+
+### Epic 1 — Cross-platform (Linux systemd, macOS launchd)
+- [ ] Re-target `Servy.Core` / `Servy.Service` / `Servy.CLI` from `net10.0-windows` to a platform-neutral `net10.0` TFM
+- [ ] Introduce a service-host abstraction over the Win32 SCM layer (`Servy.Core/Native/NativeMethods.cs`, `Services/WindowsServiceApi.cs`)
+- [ ] systemd backend (Linux)
+- [ ] launchd backend (macOS)
+- [ ] Abstract Windows Event Log (`Logging/EventLogReader.cs`) and AD/gMSA identity behind platform-neutral logging/identity seams
+- [ ] Decide the UI story (WPF apps stay Windows-only vs. a cross-platform toolkit vs. CLI-first elsewhere)
+
+### Epic 2 — Multi-architecture (arm64)
+- [ ] Add the `win-arm64` RID; then `linux-arm64` / `osx-arm64` alongside the cross-platform work
+- [ ] Produce per-architecture builds of the embedded service/restarter helpers and `handle.exe` utility
+- [ ] Resolve AOT and code-signing implications for the new architectures
+
+### Epic 3 — Velopack integration
+- [ ] Decide the model: Servy as a Velopack subsystem vs. independent Servy + a Velopack adapter
+- [ ] Unify install/update (Velopack) with service/daemon management (Servy)
+- [ ] Coordinate with the [velopack fork](https://github.com/bilbospocketses/velopack)
+
+## Out of scope (deferred)
+
+- **Packaging rebrand** (WinGet/Chocolatey/Scoop manifests, Inno Setup scripts, build scripts → fork identity) — gated on the fork having its own releases and signing. Until then, released binaries come from upstream.
