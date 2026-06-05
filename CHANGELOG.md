@@ -9,10 +9,11 @@
 
 ### Changed
 - Fork-forward rewrite of `README.md`, `NOTES.md`, and `ROADMAP.md` to establish the fork's identity and vision; `setup/*/README.md` de-branded as fork local-test notes.
-- Repository hardening / lockdown — branch + tag rulesets, SHA-pinned GitHub Actions (commit `231c0a9b`).
+- Repository hardening / lockdown — branch + tag rulesets, SHA-pinned GitHub Actions.
+- Branch model restructured for at-will upstream sync: `develop` is now the locked default branch (carries all fork work + the protection ruleset), and `main` is a pristine, unprotected mirror of `upstream/main` synced on demand via `gh repo sync`. The `build`/`test`/`security`/`loc` workflows were retargeted to `develop`; the upstream `sonar` (SonarCloud) workflow is disabled in the fork.
 
 ### Notes
-- The fork was created from upstream `main` @ `c61f0562` (Servy 8.4 line, 2026-05-19) and is otherwise **code-identical to upstream 8.4** — no product behavior has diverged. Released, signed Windows binaries come from upstream.
+- The fork tracks upstream `main` (last synced to `a3563142`, 2026-06-05, post-8.4) and is otherwise **code-identical to upstream** — only documentation and CI triggers diverge, no product behavior. Released, signed Windows binaries come from upstream.
 
 ---
 
