@@ -14,7 +14,7 @@ name: loc
 on:
   push:
     branches:
-      - main
+      - develop
   workflow_dispatch:
 
 permissions:
