@@ -2,7 +2,10 @@
 {
     // 1. Establish a unique, non-parallelized execution collection domain for CLI tests
     [CollectionDefinition("Servy.CLI.ConsoleTests", DisableParallelization = true)]
-    public class CliConsoleCollection { }
+    public class CliConsoleCollection : ICollectionFixture<object>
+    {
+        // Enforces strict sequential isolation across the execution suite
+    }
 
     // 2. Explicitly bind the test class to the sequential execution collection
     [Collection("Servy.CLI.ConsoleTests")]
@@ -176,35 +179,30 @@
         #region Exception & Interrupt Scenarios
 
         [Fact]
-        public async Task Main_ExecutionFlowInterruptedByCancellation_ReturnsErrorExitCode()
+        public async Task Main_InvalidArguments_ReturnsErrorExitCode()
         {
-            using (CancellationTokenSource localCts = new CancellationTokenSource())
+            // 1. Capture the original writer
+            var originalOut = Console.Out;
+
+            // 2. Synchronized allocation
+            using (var stringWriter = TextWriter.Synchronized(new StringWriter()))
             {
-                localCts.Cancel();
-
-                // 1. Capture the original writer
-                var originalOut = Console.Out;
-
-                // 2. Synchronized allocation
-                using (var stringWriter = TextWriter.Synchronized(new StringWriter()))
+                try
                 {
-                    try
-                    {
-                        // 3. Redirect
-                        Console.SetOut(stringWriter);
+                    // 3. Redirect
+                    Console.SetOut(stringWriter);
 
-                        // 4. Act
-                        string[] args = { "install", "--corrupt-flag-combination" };
-                        int exitCode = await Program.Main(args);
+                    // 4. Act
+                    string[] args = { "install", "--corrupt-flag-combination" };
+                    int exitCode = await Program.Main(args);
 
-                        // 5. Assert
-                        Assert.Equal((int)CliExitCode.Error, exitCode);
-                    }
-                    finally
-                    {
-                        // 6. Restore
-                        Console.SetOut(originalOut);
-                    }
+                    // 5. Assert
+                    Assert.Equal((int)CliExitCode.Error, exitCode);
+                }
+                finally
+                {
+                    // 6. Restore
+                    Console.SetOut(originalOut);
                 }
             }
         }

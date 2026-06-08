@@ -44,6 +44,7 @@ namespace Servy.Services
         /// </summary>
         /// <param name="serviceName">The name of the service to uninstall.</param>
         /// <param name="cancellationToken">Optional cancellation token.</param>
+        /// <returns>A task representing the asynchronous uninstallation operation.</returns>
         Task<bool> UninstallService(string? serviceName, CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -51,6 +52,7 @@ namespace Servy.Services
         /// </summary>
         /// <param name="serviceName">The name of the service to start.</param>
         /// <param name="cancellationToken">Optional cancellation token.</param>
+        /// <returns>A task representing the asynchronous start operation.</returns>
         Task<bool> StartService(string? serviceName, CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -58,6 +60,7 @@ namespace Servy.Services
         /// </summary>
         /// <param name="serviceName">The name of the service to stop.</param>
         /// <param name="cancellationToken">Optional cancellation token.</param>
+        /// <returns>A task representing the asynchronous stop operation.</returns>
         Task<bool> StopService(string? serviceName, CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -65,18 +68,21 @@ namespace Servy.Services
         /// </summary>
         /// <param name="serviceName">The name of the service to restart.</param>
         /// <param name="cancellationToken">Optional cancellation token.</param>
+        /// <returns>A task representing the asynchronous restart operation.</returns>
         Task<bool> RestartService(string? serviceName, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Exports the service configuration to an XML file selected by the user.
         /// </summary>
         /// <param name="confirmPassword">The confirmation of the service account password.</param>
+        /// <returns>A task that represents the asynchronous operation.</returns>
         Task ExportXmlConfig(string? confirmPassword);
 
         /// <summary>
-        /// Exports the service configuration to an JSON file selected by the user.
+        /// Exports the service configuration to a JSON file selected by the user.
         /// </summary>
         /// <param name="confirmPassword">The confirmation of the service account password.</param>
+        /// <returns>A task that represents the asynchronous operation.</returns>
         Task ExportJsonConfig(string? confirmPassword);
 
         /// <summary>
@@ -85,19 +91,22 @@ namespace Servy.Services
         /// and maps the values to the main view model.
         /// Shows an error message if the XML is invalid, deserialization fails, or any exception occurs.
         /// </summary>
+        /// <returns>A task that represents the asynchronous operation.</returns>
         Task ImportXmlConfig();
 
         /// <summary>
-        /// Opens a file dialog to select an JSON configuration file for a service,
+        /// Opens a file dialog to select a JSON configuration file for a service,
         /// validates the JSON against the expected <see cref="ServiceDto"/> structure,
         /// and maps the values to the main view model.
         /// Shows an error message if the JSON is invalid, deserialization fails, or any exception occurs.
         /// </summary>
+        /// <returns>A task that represents the asynchronous operation.</returns>
         Task ImportJsonConfig();
 
         /// <summary>
         /// Opens Servy Manager to manage services.
         /// </summary>
+        /// <returns>A task that represents the asynchronous operation.</returns>
         Task OpenManager();
     }
 }
