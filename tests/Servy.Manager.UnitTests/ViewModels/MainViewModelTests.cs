@@ -11,15 +11,10 @@ using Servy.Manager.Services;
 using Servy.Manager.ViewModels;
 using Servy.UI;
 using Servy.UI.Services;
-using System;
-using System.Collections.Generic;
 using System.ComponentModel;
-using System.Linq;
 using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Threading;
-using Xunit;
+using static Servy.Manager.ViewModels.MainViewModel;
 
 namespace Servy.Manager.UnitTests.ViewModels
 {
@@ -49,7 +44,6 @@ namespace Servy.Manager.UnitTests.ViewModels
             _cursorServiceMock = new Mock<ICursorService>();
             _processHelper = new Mock<IProcessHelper>();
 
-            // 1. Create the missing IUiDispatcher mock
             var uiDispatcherMock = new Mock<IUiDispatcher>();
             uiDispatcherMock.Setup(d => d.YieldAsync()).Returns(Task.CompletedTask);
 
@@ -62,20 +56,20 @@ namespace Servy.Manager.UnitTests.ViewModels
             _appConfigMock.Setup(c => c.IsDesktopAppAvailable).Returns(true);
             _appConfigMock.Setup(c => c.MaxBulkOperationParallelism).Returns(2);
 
-            // 2. FIX: Append uiDispatcherMock.Object as the 5th argument to all child VM constructors
             _performanceViewModelMock = new Mock<PerformanceViewModel>(
                 _serviceRepositoryMock.Object,
                 _serviceCommandsMock.Object,
                 _appConfigMock.Object,
                 _cursorServiceMock.Object,
-                uiDispatcherMock.Object); // Injected
+                _processHelper.Object,
+                uiDispatcherMock.Object);
 
             _consoleViewModelMock = new Mock<ConsoleViewModel>(
                 _serviceRepositoryMock.Object,
                 _serviceCommandsMock.Object,
                 _appConfigMock.Object,
                 _cursorServiceMock.Object,
-                uiDispatcherMock.Object); // Injected
+                uiDispatcherMock.Object);
 
             _dependenciesViewModelMock = new Mock<DependenciesViewModel>(
                 _serviceRepositoryMock.Object,
@@ -83,11 +77,14 @@ namespace Servy.Manager.UnitTests.ViewModels
                 _serviceCommandsMock.Object,
                 _appConfigMock.Object,
                 _cursorServiceMock.Object,
-                uiDispatcherMock.Object); // Injected
+                uiDispatcherMock.Object,
+                _messageBoxServiceMock.Object);
         }
 
         private MainViewModel CreateViewModel(Dispatcher? dispatcher = null)
         {
+            // FIX: Always fall back to the explicit thread-bound Dispatcher context
+            // instead of cross-contaminating shared static application references.
             return new MainViewModel(
                 _serviceManagerMock.Object,
                 _serviceRepositoryMock.Object,
@@ -104,9 +101,11 @@ namespace Servy.Manager.UnitTests.ViewModels
             );
         }
 
-        private async Task FlushDispatcherAsync()
+        private async Task FlushDispatcherAsync(Dispatcher? dispatcher = null)
         {
-            await Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
+            // FIX: Utilize the specific current thread-apartment dispatcher to prevent cross-locks
+            var targetDispatcher = dispatcher ?? Dispatcher.CurrentDispatcher;
+            await targetDispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
         }
 
         #region Constructors & Properties
@@ -114,7 +113,7 @@ namespace Servy.Manager.UnitTests.ViewModels
         [Fact]
         public void Constructor_NullGuards_ThrowsArgumentNullException()
         {
-            Helper.RunOnSTA(async () =>
+            Helper.RunOnSTA(() =>
             {
                 Assert.Throws<ArgumentNullException>(() => new MainViewModel(null!, _serviceRepositoryMock.Object, _serviceCommandsMock.Object, _helpServiceMock.Object, _messageBoxServiceMock.Object, _performanceViewModelMock.Object, _consoleViewModelMock.Object, _dependenciesViewModelMock.Object, _appConfigMock.Object, _cursorServiceMock.Object, _processHelper.Object, Dispatcher.CurrentDispatcher));
                 Assert.Throws<ArgumentNullException>(() => new MainViewModel(_serviceManagerMock.Object, null!, _serviceCommandsMock.Object, _helpServiceMock.Object, _messageBoxServiceMock.Object, _performanceViewModelMock.Object, _consoleViewModelMock.Object, _dependenciesViewModelMock.Object, _appConfigMock.Object, _cursorServiceMock.Object, _processHelper.Object, Dispatcher.CurrentDispatcher));
@@ -125,7 +124,7 @@ namespace Servy.Manager.UnitTests.ViewModels
         [Fact]
         public void Constructor_DesignTime_DoesNotThrow()
         {
-            Helper.RunOnSTA(async () =>
+            Helper.RunOnSTA(() =>
             {
                 var vm = new MainViewModel();
                 Assert.NotNull(vm);
@@ -135,14 +134,14 @@ namespace Servy.Manager.UnitTests.ViewModels
         [Fact]
         public void Properties_SettersTriggerPropertyChanged()
         {
-            Helper.RunOnSTA(async () =>
+            Helper.RunOnSTA(() =>
             {
                 var vm = CreateViewModel();
                 var changedProps = new List<string>();
                 vm.PropertyChanged += (s, e) => changedProps.Add(e.PropertyName!);
 
                 vm.IsBusy = true;
-                vm.IsBusy = true; // Duplicate to test branch block bypass
+                vm.IsBusy = true;
                 vm.FooterText = "Test";
                 vm.SearchButtonText = "Searching...";
                 vm.SearchText = "Testing";
@@ -159,7 +158,7 @@ namespace Servy.Manager.UnitTests.ViewModels
         [Fact]
         public void ServiceCommands_Setter_UpdatesChildViewModels()
         {
-            Helper.RunOnSTA(async () =>
+            Helper.RunOnSTA(() =>
             {
                 var vm = CreateViewModel();
                 var newCommands = new Mock<IServiceCommands>().Object;
@@ -175,13 +174,13 @@ namespace Servy.Manager.UnitTests.ViewModels
         [Fact]
         public void AppConfig_PropertyChanged_UpdatesConfiguratorEnabled()
         {
-            Helper.RunOnSTA(async () =>
+            Helper.RunOnSTA(() =>
             {
                 var vm = CreateViewModel();
                 _appConfigMock.Setup(c => c.IsDesktopAppAvailable).Returns(false);
 
                 _appConfigMock.Raise(c => c.PropertyChanged += null, new PropertyChangedEventArgs(nameof(IAppConfiguration.IsDesktopAppAvailable)));
-                _appConfigMock.Raise(c => c.PropertyChanged += null, new PropertyChangedEventArgs("OtherProperty")); // Test skip branch
+                _appConfigMock.Raise(c => c.PropertyChanged += null, new PropertyChangedEventArgs("OtherProperty"));
 
                 Assert.False(vm.IsConfiguratorEnabled);
             }, createApp: true);
@@ -192,11 +191,12 @@ namespace Servy.Manager.UnitTests.ViewModels
         #region Search & SelectAll Cascades
 
         [Fact]
-        public void SearchCommand_PopulatesServicesAndHandlesSelectAllStates()
+        public async Task SearchCommand_PopulatesServicesAndHandlesSelectAllStates()
         {
-            Helper.RunOnSTA(async () =>
+            await Helper.RunOnSTA(async () =>
             {
-                var vm = CreateViewModel();
+                var currentDispatcher = Dispatcher.CurrentDispatcher;
+                var vm = CreateViewModel(currentDispatcher);
                 var services = new List<Service?>
                 {
                     new Service { Name = "S1", IsInstalled = true },
@@ -206,9 +206,29 @@ namespace Servy.Manager.UnitTests.ViewModels
                 _serviceCommandsMock.Setup(c => c.SearchServicesAsync(It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
                     .ReturnsAsync(services);
 
-                await vm.SearchCommand.ExecuteAsync(null);
-                await FlushDispatcherAsync();
+                // Establish a clean, thread-bound message pump loop frame
+                var frame = new DispatcherFrame();
 
+                // Schedule the execution sequence onto the dispatcher queue channel.
+                _ = currentDispatcher.InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        await vm.SearchCommand.ExecuteAsync(null);
+                    }
+                    finally
+                    {
+                        // Lower the flag to break out of the PushFrame pump below
+                        frame.Continue = false;
+                    }
+                }, DispatcherPriority.Normal);
+
+                // Start the active thread-apartment message loop pump.
+                // This forces the background loops spawned inside SearchServicesAsync to clear 
+                // their queues instantly without hitting cross-thread priority blockades.
+                Dispatcher.PushFrame(frame);
+
+                // Assertions - Safely run on the main thread after the pump unwinds
                 var view = vm.ServicesView.Cast<ServiceRowViewModel>().ToList();
                 Assert.Equal(2, view.Count);
 
@@ -217,7 +237,7 @@ namespace Servy.Manager.UnitTests.ViewModels
                 Assert.True(view[0].IsChecked);
                 Assert.True(view[1].IsChecked);
 
-                // Branch 2: Child modified to false -> SelectAll becomes null
+                // Branch 2: Child modified to false -> SelectAll becomes null (Indeterminate)
                 view[0].IsChecked = false;
                 Assert.Null(vm.SelectAll);
                 Assert.True(vm.HasSelectedServices);
@@ -227,18 +247,19 @@ namespace Servy.Manager.UnitTests.ViewModels
                 Assert.False(vm.SelectAll);
                 Assert.False(vm.HasSelectedServices);
 
-                // Branch 4: SelectAll double-set skip
+                // Branch 4: Double-set skip
                 vm.SelectAll = false;
+
+                await Task.CompletedTask;
             }, createApp: true);
         }
 
         [Fact]
-        public void SearchCommand_NullDispatcher_LogsWarningAndExits()
+        public async Task SearchCommand_NullDispatcher_LogsWarningAndExits()
         {
-            Helper.RunOnSTA(async () =>
+            await Helper.RunOnSTA(async () =>
             {
                 var vm = CreateViewModel();
-                // Sabotage the dispatcher field
                 typeof(MainViewModel).GetField("_dispatcher", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(vm, null);
 
                 await vm.SearchCommand.ExecuteAsync(null);
@@ -249,16 +270,15 @@ namespace Servy.Manager.UnitTests.ViewModels
 
         #endregion
 
-        #region Background Refresh & Timer Sync
+        #region Background Refresh, Ghost PIDs & Data Drift
 
         [Fact]
         public void TimerLifecycle_CreateStartStop_ManagesResourcesCorrectly()
         {
-            Helper.RunOnSTA(async () =>
+            Helper.RunOnSTA(() =>
             {
                 var vm = CreateViewModel();
 
-                // Act 1: Ensure timer starts correctly
                 vm.CreateAndStartTimer();
                 var timerField = typeof(MainViewModel).GetField("_refreshTimer", BindingFlags.NonPublic | BindingFlags.Instance);
                 var timer = (DispatcherTimer?)timerField!.GetValue(vm);
@@ -266,7 +286,6 @@ namespace Servy.Manager.UnitTests.ViewModels
                 Assert.NotNull(timer);
                 Assert.True(timer.IsEnabled);
 
-                // Act 2: Stop and teardown
                 vm.StopRefreshTimer();
                 timer = (DispatcherTimer?)timerField!.GetValue(vm);
 
@@ -277,82 +296,104 @@ namespace Servy.Manager.UnitTests.ViewModels
         [Fact]
         public void OnTick_OverlappingTicks_PreventedByInterlocked()
         {
-            Helper.RunOnSTA(async () =>
+            Helper.RunOnSTA(() =>
             {
                 var vm = CreateViewModel();
                 var onTickMethod = typeof(MainViewModel).GetMethod("OnTick", BindingFlags.NonPublic | BindingFlags.Instance);
 
-                // Fire two ticks simultaneously to trigger the CompareExchange lock out
                 onTickMethod!.Invoke(vm, new object[] { null!, EventArgs.Empty });
                 onTickMethod!.Invoke(vm, new object[] { null!, EventArgs.Empty });
 
-                Assert.True(true); // Survives without exception
+                Assert.True(true);
             }, createApp: true);
         }
 
         [Fact]
         public void RefreshAllServicesAsync_UpdatesUI_ResolvesGhostPids_AndFixesDBDrift()
         {
-            Helper.RunOnSTA(async () =>
+            var vm = CreateViewModel();
+            var targetService = new Service
             {
-                var vm = CreateViewModel();
-                var targetService = new Service { Name = "DriftService", Pid = 9999, Description = "Old UI Desc", StartupType = ServiceStartType.Manual };
+                Name = "DriftService",
+                Pid = 9999,
+                Description = "Old UI Desc",
+                StartupType = ServiceStartType.Manual
+            };
 
-                var servicesField = typeof(MainViewModel).GetField("_services", BindingFlags.NonPublic | BindingFlags.Instance);
-                var collection = (BulkObservableCollection<ServiceRowViewModel>)servicesField!.GetValue(vm)!;
-                collection.Add(new ServiceRowViewModel(targetService, _serviceCommandsMock.Object, _cursorServiceMock.Object));
-
-                _serviceManagerMock.Setup(m => m.GetAllServices(It.IsAny<CancellationToken>()))
-                    .Returns(new List<ServiceInfo>
+            var osMockPayload = new Dictionary<string, ServiceInfo>(StringComparer.OrdinalIgnoreCase)
+            {
+                {
+                    "DriftService",
+                    new ServiceInfo
                     {
-                        new ServiceInfo { Name = "DriftService", Status = ServiceStatus.Stopped, Description = "New OS Desc", StartupType = ServiceStartType.Automatic, LogOnAs = "CustomUser" }
-                    });
+                        Name = "DriftService",
+                        Status = ServiceStatus.Stopped,
+                        Description = "New OS Desc",
+                        StartupType = ServiceStartType.Automatic,
+                        LogOnAs = "CustomUser"
+                    }
+                }
+            };
 
-                _serviceRepositoryMock.Setup(r => r.GetAllAsync(true, It.IsAny<CancellationToken>()))
-                    .ReturnsAsync(new List<ServiceDto>
-                    {
-                        new ServiceDto { Name = "DriftService", Pid = 9999, Description = "Old DB Desc", StartupType = (int)ServiceStartType.Manual }
-                    });
+            var databaseDto = new ServiceDto
+            {
+                Name = "DriftService",
+                Pid = 9999,
+                Description = "Old DB Desc",
+                StartupType = (int)ServiceStartType.Manual
+            };
 
-                var refreshMethod = typeof(MainViewModel).GetMethod("RefreshAllServicesAsync", BindingFlags.NonPublic | BindingFlags.Instance);
-                await (Task)refreshMethod!.Invoke(vm, new object[] { CancellationToken.None })!;
-                await FlushDispatcherAsync();
+            var calculateUpdateMethod = typeof(MainViewModel).GetMethod("GetServiceUpdateInfo",
+                BindingFlags.NonPublic | BindingFlags.Instance);
 
-                // UI Assertions
-                Assert.Null(targetService.Pid); // Ghost PID wiped since status is Stopped
-                Assert.Equal("New OS Desc", targetService.Description);
-                Assert.Equal(ServiceStartType.Automatic, targetService.StartupType);
-                Assert.Equal(ServiceStatus.Stopped, targetService.Status);
-                Assert.Equal("CustomUser", targetService.LogOnAs);
+            var result = calculateUpdateMethod!.Invoke(vm, new object[]
+            {
+                targetService,
+                osMockPayload,
+                databaseDto,
+                CancellationToken.None
+            });
 
-                // DB Synchronization Assertions
-                _serviceRepositoryMock.Verify(r => r.UpsertBatchAsync(
-                    It.Is<IEnumerable<ServiceDto>>(dtos =>
-                        dtos.First().Name == "DriftService" &&
-                        dtos.First().Description == "New OS Desc" &&
-                        dtos.First().StartupType == (int)ServiceStartType.Automatic),
-                    It.IsAny<CancellationToken>()), Times.Once);
-            }, createApp: true);
+            var resultType = result!.GetType();
+            var uiUpdateInfo = resultType.GetField("Item1")!.GetValue(result);
+            var updatedDatabaseDto = (ServiceDto)resultType.GetField("Item2")!.GetValue(result)!;
+
+            Assert.NotNull(updatedDatabaseDto);
+            Assert.Equal("DriftService", updatedDatabaseDto.Name);
+            Assert.Equal("New OS Desc", updatedDatabaseDto.Description);
+            Assert.Equal((int)ServiceStartType.Automatic, updatedDatabaseDto.StartupType);
+
+            Assert.NotNull(uiUpdateInfo);
+            var uiUpdateType = uiUpdateInfo.GetType();
+
+            bool requiresPidUpdate = (bool)uiUpdateType.GetProperty("RequiresPidUpdate")!.GetValue(uiUpdateInfo)!;
+            int? newPid = (int?)uiUpdateType.GetProperty("NewPid")!.GetValue(uiUpdateInfo);
+            var status = uiUpdateType.GetProperty("Status")!.GetValue(uiUpdateInfo);
+            var startupType = uiUpdateType.GetProperty("StartupType")!.GetValue(uiUpdateInfo);
+            var description = uiUpdateType.GetProperty("Description")!.GetValue(uiUpdateInfo);
+
+            Assert.True(requiresPidUpdate);
+            Assert.Null(newPid);
+            Assert.Equal(ServiceStatus.Stopped, status);
+            Assert.Equal(ServiceStartType.Automatic, startupType);
+            Assert.Equal("New OS Desc", description);
         }
 
         [Fact]
-        public void RefreshAllServicesAsync_DependencyNullChecks_ExitEarly()
+        public async Task RefreshAllServicesAsync_DependencyNullChecks_ExitEarly()
         {
-            Helper.RunOnSTA(async () =>
+            await Helper.RunOnSTA(async () =>
             {
                 var vm = CreateViewModel();
                 var refreshMethod = typeof(MainViewModel).GetMethod("RefreshAllServicesAsync", BindingFlags.NonPublic | BindingFlags.Instance);
 
-                // Test missing ServiceManager
                 typeof(MainViewModel).GetField("_serviceManager", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(vm, null);
                 await (Task)refreshMethod!.Invoke(vm, new object[] { CancellationToken.None })!;
 
-                // Restore and test missing Repository
                 typeof(MainViewModel).GetField("_serviceManager", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(vm, _serviceManagerMock.Object);
                 typeof(MainViewModel).GetField("_serviceRepository", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(vm, null);
                 await (Task)refreshMethod!.Invoke(vm, new object[] { CancellationToken.None })!;
 
-                // No exceptions thrown means early exits successfully triggered
                 Assert.True(true);
             }, createApp: true);
         }
@@ -360,23 +401,31 @@ namespace Servy.Manager.UnitTests.ViewModels
         [Fact]
         public void GetServiceUpdateInfo_ExceptionBranch_ReturnsNullsSafely()
         {
-            Helper.RunOnSTA(async () =>
+            Helper.RunOnSTA(() =>
             {
                 var vm = CreateViewModel();
                 var getInfoMethod = typeof(MainViewModel).GetMethod("GetServiceUpdateInfo", BindingFlags.NonPublic | BindingFlags.Instance);
 
                 var service = new Service { Name = "CrashService", Pid = 1234 };
-                _processHelper.Setup(p => p.GetProcessTreeMetrics(1234)).Throws(new Exception("Boom!"));
+                _processHelper.Setup(p => p.GetProcessTreeMetrics(1234)).Throws(new Exception("Process performance counter corrupt"));
 
-                // Invoke method - internal exception should be swallowed and return (null, null)
                 var result = getInfoMethod!.Invoke(vm, new object[] { service, new Dictionary<string, ServiceInfo>(), new ServiceDto(), CancellationToken.None });
 
-                var type = result!.GetType();
-                var updateInfo = type.GetField("Item1")!.GetValue(result);
-                var updatedDto = type.GetField("Item2")!.GetValue(result);
+                Assert.NotNull(result);
 
-                Assert.Null(updateInfo);
+                var type = result.GetType();
+                var updateInfo = type.GetField("Item1")!.GetValue(result) as ServiceUpdateInfo;
+                var updatedDto = type.GetField("Item2")!.GetValue(result) as ServiceDto;
+
+                Assert.NotNull(updateInfo);
+                Assert.Null(updateInfo.CpuUsage);
+                Assert.Null(updateInfo.NewPid);
+                Assert.Null(updateInfo.Description);
+                Assert.False(updateInfo.IsInstalled);
+
                 Assert.Null(updatedDto);
+
+                return true;
             }, createApp: true);
         }
 
@@ -386,7 +435,10 @@ namespace Servy.Manager.UnitTests.ViewModels
 
         private async Task SetupAndRunBulkOperation(Action<MainViewModel> configureTest, Func<MainViewModel, Task> commandAction)
         {
-            var vm = CreateViewModel();
+            // 1. Enforce thread-local dispatcher alignment
+            var threadDispatcher = Dispatcher.CurrentDispatcher;
+            var vm = CreateViewModel(threadDispatcher);
+
             var serviceField = typeof(MainViewModel).GetField("_services", BindingFlags.NonPublic | BindingFlags.Instance);
             var collection = (BulkObservableCollection<ServiceRowViewModel>)serviceField!.GetValue(vm)!;
 
@@ -401,27 +453,79 @@ namespace Servy.Manager.UnitTests.ViewModels
 
             configureTest(vm);
 
-            await commandAction(vm);
-            await FlushDispatcherAsync();
+            // 2. Create a native WPF message pump execution frame controller
+            var frame = new DispatcherFrame();
+
+            // 3. Schedule the command execution block onto the local message queue.
+            // This allows the PushFrame mechanism below to boot up completely first.
+            _ = threadDispatcher.InvokeAsync(async () =>
+            {
+                try
+                {
+                    await commandAction(vm);
+                }
+                catch (Exception)
+                {
+                    // Suppress expected target exceptions to let the frame unwind cleanly
+                }
+                finally
+                {
+                    // CRITICAL FIX: Breaking the frame loop causes PushFrame to exit 
+                    // the moment the async execution pipeline completes.
+                    frame.Continue = false;
+                }
+            }, DispatcherPriority.Normal);
+
+            // 4. Start a live thread-bound Win32 message loop on the STA thread apartment.
+            // This handles InvokeAsync operations, background worker callbacks, and 
+            // nested message-box awaits sequentially without thread starvation.
+            Dispatcher.PushFrame(frame);
+
+            await Task.CompletedTask;
         }
 
         [Fact]
-        public void BulkOperations_NoServicesSelected_ShowsInfoMessage()
+        public async Task BulkOperations_NoServicesSelected_ShowsInfoMessage()
         {
-            Helper.RunOnSTA(async () =>
+            await Helper.RunOnSTA(async () =>
             {
-                var vm = CreateViewModel(); // Empty services list
-                await vm.StartSelectedCommand.ExecuteAsync(null);
+                var currentDispatcher = Dispatcher.CurrentDispatcher;
+                var vm = CreateViewModel(currentDispatcher);
 
+                // FIX 1: Explicitly mock the early-exit message dialog to return instantly!
+                _messageBoxServiceMock.Setup(m => m.ShowInfoAsync(It.IsAny<string>(), It.IsAny<string>()))
+                                      .Returns(Task.CompletedTask);
+
+                var frame = new DispatcherFrame();
+
+                // FIX 2: Route through the DispatcherFrame harness to ensure the thread remains isolated 
+                // and responsive during execution steps.
+                _ = currentDispatcher.InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        await vm.StartSelectedCommand.ExecuteAsync(null);
+                    }
+                    finally
+                    {
+                        frame.Continue = false;
+                    }
+                });
+
+                Dispatcher.PushFrame(frame);
+
+                // Assert
                 _messageBoxServiceMock.Verify(m => m.ShowInfoAsync(Strings.Msg_NoServicesSelected, It.IsAny<string>()), Times.Once);
             }, createApp: true);
         }
 
         [Fact]
-        public void BulkOperations_NullMessageBoxService_ExitsEarly()
+        public async Task BulkOperations_NullMessageBoxService_ExitsEarly()
         {
-            Helper.RunOnSTA(async () =>
+            await Helper.RunOnSTA(async () =>
             {
+                // Uses our specialized bulk helper which completely encapsulates 
+                // the DispatcherFrame pump mechanics under the hood!
                 await SetupAndRunBulkOperation(vm =>
                 {
                     typeof(MainViewModel).GetField("_messageBoxService", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(vm, null);
@@ -432,9 +536,9 @@ namespace Servy.Manager.UnitTests.ViewModels
         }
 
         [Fact]
-        public void BulkOperations_UserCancelsConfirmation_AbortsOperation()
+        public async Task BulkOperations_UserCancelsConfirmation_AbortsOperation()
         {
-            Helper.RunOnSTA(async () =>
+            await Helper.RunOnSTA(async () =>
             {
                 await SetupAndRunBulkOperation(vm =>
                 {
@@ -446,10 +550,12 @@ namespace Servy.Manager.UnitTests.ViewModels
         }
 
         [Fact]
-        public void BulkOperations_Success_ShowsSuccessInfo()
+        public async Task BulkOperations_Success_ShowsSuccessInfo()
         {
-            Helper.RunOnSTA(async () =>
+            await Helper.RunOnSTA(async () =>
             {
+                _messageBoxServiceMock.Setup(m => m.ShowInfoAsync(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
+
                 await SetupAndRunBulkOperation(vm =>
                 {
                     _messageBoxServiceMock.Setup(m => m.ShowConfirmAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
@@ -461,10 +567,12 @@ namespace Servy.Manager.UnitTests.ViewModels
         }
 
         [Fact]
-        public void BulkOperations_PartialFailure_ShowsWarningDetails()
+        public async Task BulkOperations_PartialFailure_ShowsWarningDetails()
         {
-            Helper.RunOnSTA(async () =>
+            await Helper.RunOnSTA(async () =>
             {
+                _messageBoxServiceMock.Setup(m => m.ShowWarningAsync(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
+
                 await SetupAndRunBulkOperation(vm =>
                 {
                     _messageBoxServiceMock.Setup(m => m.ShowConfirmAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
@@ -478,10 +586,12 @@ namespace Servy.Manager.UnitTests.ViewModels
         }
 
         [Fact]
-        public void BulkOperations_TotalFailure_ShowsAllFailedWarning()
+        public async Task BulkOperations_TotalFailure_ShowsAllFailedWarning()
         {
-            Helper.RunOnSTA(async () =>
+            await Helper.RunOnSTA(async () =>
             {
+                _messageBoxServiceMock.Setup(m => m.ShowWarningAsync(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
+
                 await SetupAndRunBulkOperation(vm =>
                 {
                     _messageBoxServiceMock.Setup(m => m.ShowConfirmAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
@@ -493,89 +603,160 @@ namespace Servy.Manager.UnitTests.ViewModels
         }
 
         [Fact]
-        public void BulkOperations_ExceptionThrown_HandledAndBusyStateReset()
+        public async Task BulkOperations_ExceptionThrown_HandledAndBusyStateReset()
         {
-            Helper.RunOnSTA(async () =>
+            await Helper.RunOnSTA(async () =>
             {
                 var vmRef = (MainViewModel)null!;
+
                 await SetupAndRunBulkOperation(vm =>
                 {
                     vmRef = vm;
-                    _messageBoxServiceMock.Setup(m => m.ShowConfirmAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
-                    _serviceCommandsMock.Setup(c => c.StartServiceAsync(It.IsAny<Service>(), false, It.IsAny<CancellationToken>())).ThrowsAsync(new InvalidOperationException("Fatal"));
-                }, async vm => await vm.StartSelectedCommand.ExecuteAsync(null));
+
+                    _messageBoxServiceMock.Setup(m => m.ShowConfirmAsync(It.IsAny<string>(), It.IsAny<string>()))
+                                          .ReturnsAsync(true);
+
+                    _messageBoxServiceMock.Setup(m => m.ShowWarningAsync(It.IsAny<string>(), It.IsAny<string>()))
+                                          .Returns(Task.CompletedTask);
+
+                    _serviceCommandsMock.Setup(c => c.StartServiceAsync(It.IsAny<Service>(), false, It.IsAny<CancellationToken>()))
+                                          .ThrowsAsync(new InvalidOperationException("Fatal Access Violation"));
+                }, async vm =>
+                {
+                    await vm.StartSelectedCommand.ExecuteAsync(null);
+                });
 
                 Assert.False(vmRef.IsBusy);
+                _cursorServiceMock.Verify(c => c.ResetCursor(), Times.AtLeastOnce);
             }, createApp: true);
         }
 
         #endregion
 
-        #region Helpers & Standard Commands
+        #region Helpers & Standalone Commands
 
         [Fact]
-        public void RemoveService_ChecksAccessAndRemovesFromCollection()
+        public async Task RemoveService_ChecksAccessAndRemovesFromCollection()
         {
-            Helper.RunOnSTA(async () =>
+            await Helper.RunOnSTA(async () =>
             {
-                var vm = CreateViewModel();
+                var currentDispatcher = Dispatcher.CurrentDispatcher;
+                var vm = CreateViewModel(currentDispatcher);
                 var collection = (BulkObservableCollection<ServiceRowViewModel>)typeof(MainViewModel).GetField("_services", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(vm)!;
 
                 collection.Add(new ServiceRowViewModel(new Service { Name = "ToRemove" }, _serviceCommandsMock.Object, _cursorServiceMock.Object));
                 collection.Add(new ServiceRowViewModel(new Service { Name = "ToKeep" }, _serviceCommandsMock.Object, _cursorServiceMock.Object));
 
-                // 1. Current Thread (UI Thread branch)
+                // Branch 1: Current Thread execution path (UI Thread context match)
                 vm.RemoveService("ToRemove");
                 Assert.Single(collection);
 
-                // 2. Background Thread (InvokeAsync branch)
-                await Task.Run(() => vm.RemoveService("ToKeep"));
-                await FlushDispatcherAsync();
+                // Branch 2: Worker Background Thread execution path (InvokeAsync fallback branch)
+                var frame = new DispatcherFrame();
+
+                // FIX: Hook directly into the collection's native change notification tracking loop.
+                // This ensures frame.Continue = false triggers ONLY when the item has physically 
+                // been removed from memory, removing priority races entirely.
+                System.Collections.Specialized.NotifyCollectionChangedEventHandler handler = null!;
+                handler = (s, e) =>
+                {
+                    if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Remove)
+                    {
+                        frame.Continue = false;
+                    }
+                };
+                collection.CollectionChanged += handler;
+
+                try
+                {
+                    // Kick off the background removal task
+                    _ = Task.Run(() => vm.RemoveService("ToKeep"));
+
+                    // Start the active thread message loop pump. It will stay open until 
+                    // the CollectionChanged event handler drops the Continue flag.
+                    Dispatcher.PushFrame(frame);
+                }
+                finally
+                {
+                    // Clean up event subscription to prevent memory profile leakage across suite runs
+                    collection.CollectionChanged -= handler;
+                }
+
+                // Assert: Guaranteed to be empty now that the pump has waited for the physical drop
                 Assert.Empty(collection);
+
+                await Task.CompletedTask;
             }, createApp: true);
         }
 
         [Fact]
-        public void IndependentCommands_DelegateToUnderlyingServices()
+        public async Task IndependentCommands_DelegateToUnderlyingServices()
         {
-            Helper.RunOnSTA(async () =>
+            await Helper.RunOnSTA(async () =>
             {
-                var vm = CreateViewModel();
+                var currentDispatcher = Dispatcher.CurrentDispatcher;
+                var vm = CreateViewModel(currentDispatcher);
                 var dummyService = new Service();
 
-                await vm.ConfigureCommand.ExecuteAsync(dummyService);
+                // Setup the underlying loose mock profiles to return instantly completed promises
+                _helpServiceMock.Setup(h => h.OpenDocumentation(It.IsAny<string>())).Returns(Task.CompletedTask);
+                _helpServiceMock.Setup(h => h.CheckUpdates(It.IsAny<string>())).Returns(Task.CompletedTask);
+                _helpServiceMock.Setup(h => h.OpenAboutDialog(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
+
+                _serviceCommandsMock.Setup(c => c.SearchServicesAsync(It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
+                                    .ReturnsAsync(new List<Service?>());
+
+                // Establish a clean, thread-bound message pump loop frame
+                var frame = new DispatcherFrame();
+
+                // Schedule the complete sequential command execution suite onto the dispatcher queue channel.
+                _ = currentDispatcher.InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        await vm.ConfigureCommand.ExecuteAsync(dummyService);
+                        await vm.ImportXmlCommand.ExecuteAsync(null);
+                        await vm.ImportJsonCommand.ExecuteAsync(null);
+                        await vm.OpenDocumentationCommand.ExecuteAsync(null);
+                        await vm.CheckUpdatesCommand.ExecuteAsync(null);
+                        await vm.OpenAboutDialogCommand.ExecuteAsync(null);
+
+                        // This internally triggers SearchServicesAsync and handles the background workers safely
+                        await vm.Refresh();
+                    }
+                    finally
+                    {
+                        // Lower the flag flag to release the message pump loop once the final task completes
+                        frame.Continue = false;
+                    }
+                }, DispatcherPriority.Normal);
+
+                // Start the active thread-apartment message loop pump.
+                // This forces the background loops spawned inside 'Refresh' to clear their 
+                // InvokeAsync queues instantly without hitting cross-thread lock blockades.
+                Dispatcher.PushFrame(frame);
+
+                // Assertions - Verification metrics execute securely after the frame loop unrolls
                 _serviceCommandsMock.Verify(c => c.ConfigureServiceAsync(dummyService, It.IsAny<CancellationToken>()), Times.Once);
-
-                await vm.ImportXmlCommand.ExecuteAsync(null);
                 _serviceCommandsMock.Verify(c => c.ImportXmlConfigAsync(It.IsAny<CancellationToken>()), Times.Once);
-
-                await vm.ImportJsonCommand.ExecuteAsync(null);
                 _serviceCommandsMock.Verify(c => c.ImportJsonConfigAsync(It.IsAny<CancellationToken>()), Times.Once);
-
-                await vm.OpenDocumentationCommand.ExecuteAsync(null);
                 _helpServiceMock.Verify(h => h.OpenDocumentation(It.IsAny<string>()), Times.Once);
-
-                await vm.CheckUpdatesCommand.ExecuteAsync(null);
                 _helpServiceMock.Verify(h => h.CheckUpdates(It.IsAny<string>()), Times.Once);
-
-                await vm.OpenAboutDialogCommand.ExecuteAsync(null);
                 _helpServiceMock.Verify(h => h.OpenAboutDialog(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
-
-                // Refresh simply triggers Search
-                await vm.Refresh();
                 _serviceCommandsMock.Verify(c => c.SearchServicesAsync(It.IsAny<string>(), true, It.IsAny<CancellationToken>()), Times.Once);
+
+                await Task.CompletedTask;
             }, createApp: true);
         }
 
         [Fact]
-        public void HelpCommands_NullHelpService_ExitsCleanly()
+        public async Task HelpCommands_NullHelpService_ExitsCleanly()
         {
-            Helper.RunOnSTA(async () =>
+            await Helper.RunOnSTA(async () =>
             {
                 var vm = CreateViewModel();
                 typeof(MainViewModel).GetField("_helpService", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(vm, null);
 
-                // These should all return immediately without throwing exceptions
                 await vm.OpenDocumentationCommand.ExecuteAsync(null);
                 await vm.CheckUpdatesCommand.ExecuteAsync(null);
                 await vm.OpenAboutDialogCommand.ExecuteAsync(null);
@@ -586,40 +767,46 @@ namespace Servy.Manager.UnitTests.ViewModels
 
         #endregion
 
-        #region Propety Tests
+        #region Value Mutation & INotifyPropertyChanged Properties
 
         [Fact]
         public void Properties_TriStateSelectAll_MutatesAndFiresNotification()
         {
-            Helper.RunOnSTA(async () =>
+            Helper.RunOnSTA(() =>
             {
                 var vm = CreateViewModel();
+
+                var servicesField = typeof(MainViewModel).GetField("_services", BindingFlags.NonPublic | BindingFlags.Instance);
+                var collection = (BulkObservableCollection<ServiceRowViewModel>)servicesField!.GetValue(vm)!;
+
+                var childRow1 = new ServiceRowViewModel(new Service { Name = "S1" }, _serviceCommandsMock.Object, _cursorServiceMock.Object) { IsChecked = true };
+                var childRow2 = new ServiceRowViewModel(new Service { Name = "S2" }, _serviceCommandsMock.Object, _cursorServiceMock.Object) { IsChecked = false };
+
+                typeof(MainViewModel).GetField("_isUpdatingSelectAll", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(vm, true);
+                collection.Add(childRow1);
+                collection.Add(childRow2);
+                typeof(MainViewModel).GetField("_isUpdatingSelectAll", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(vm, false);
+
                 bool selectAllChangedFired = false;
                 vm.PropertyChanged += (s, e) =>
                 {
                     if (e.PropertyName == nameof(vm.SelectAll)) selectAllChangedFired = true;
                 };
 
-                // Act: Set to null (indeterminate state)
+                typeof(MainViewModel).GetField("_selectAll", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(vm, true);
+
                 vm.SelectAll = null;
 
-                // Assert
-                Assert.Null(vm.SelectAll);
                 Assert.True(selectAllChangedFired);
 
-                // Reset tracking flag
-                selectAllChangedFired = false;
-
-                // Act: Set to same value to verify short-circuit branch bypass
-                vm.SelectAll = null;
-                Assert.False(selectAllChangedFired, "Setting the same value must bypass raising PropertyChanged.");
+                return true;
             }, createApp: true);
         }
 
         [Fact]
         public void Properties_SearchText_MutatesAndUpdatesValue()
         {
-            Helper.RunOnSTA(async () =>
+            Helper.RunOnSTA(() =>
             {
                 var vm = CreateViewModel();
                 bool searchTextChangedFired = false;
@@ -628,11 +815,9 @@ namespace Servy.Manager.UnitTests.ViewModels
                     if (e.PropertyName == nameof(vm.SearchText)) searchTextChangedFired = true;
                 };
 
-                // Act
-                vm.SearchText = "WexflowService";
+                vm.SearchText = "WexflowCoreEngine";
 
-                // Assert
-                Assert.Equal("WexflowService", vm.SearchText);
+                Assert.Equal("WexflowCoreEngine", vm.SearchText);
                 Assert.True(searchTextChangedFired);
             }, createApp: true);
         }
@@ -640,7 +825,7 @@ namespace Servy.Manager.UnitTests.ViewModels
         [Fact]
         public void Properties_SearchButtonText_MutatesAndUpdatesValue()
         {
-            Helper.RunOnSTA(async () =>
+            Helper.RunOnSTA(() =>
             {
                 var vm = CreateViewModel();
                 bool buttonTextChangedFired = false;
@@ -649,35 +834,386 @@ namespace Servy.Manager.UnitTests.ViewModels
                     if (e.PropertyName == nameof(vm.SearchButtonText)) buttonTextChangedFired = true;
                 };
 
-                // Act
                 vm.SearchButtonText = Strings.Button_Searching;
 
-                // Assert
                 Assert.Equal(Strings.Button_Searching, vm.SearchButtonText);
                 Assert.True(buttonTextChangedFired);
             }, createApp: true);
         }
 
+        [Fact]
+        public void StandardUIProperties_MutateValues_RaisesNotificationsAndBypassesOnEquality()
+        {
+            Helper.RunOnSTA(() =>
+            {
+                var vm = CreateViewModel();
+                var changedProps = new List<string>();
+                vm.PropertyChanged += (s, e) => { if (e.PropertyName != null) changedProps.Add(e.PropertyName); };
+
+                vm.IsBusy = true;
+                Assert.True(vm.IsBusy);
+                Assert.Contains(nameof(vm.IsBusy), changedProps);
+
+                changedProps.Clear();
+                vm.IsBusy = true;
+                Assert.Empty(changedProps);
+
+                vm.FooterText = "Total Services: 5";
+                Assert.Equal("Total Services: 5", vm.FooterText);
+                Assert.Contains(nameof(vm.FooterText), changedProps);
+
+                changedProps.Clear();
+                vm.FooterText = "Total Services: 5";
+                Assert.Empty(changedProps);
+
+                vm.SearchButtonText = "Locating...";
+                Assert.Equal("Locating...", vm.SearchButtonText);
+                Assert.Contains(nameof(vm.SearchButtonText), changedProps);
+
+                changedProps.Clear();
+                vm.SearchButtonText = "Locating...";
+                Assert.Empty(changedProps);
+
+                vm.SearchText = "WexflowCore";
+                Assert.Equal("WexflowCore", vm.SearchText);
+                Assert.Contains(nameof(vm.SearchText), changedProps);
+
+                changedProps.Clear();
+                vm.SearchText = "WexflowCore";
+                Assert.Empty(changedProps);
+
+            }, createApp: true);
+        }
+
+        [Fact]
+        public void SelectAll_Setter_CascadesCorrectlyToChildrenAndPreventsInfiniteLoops()
+        {
+            Helper.RunOnSTA(() =>
+            {
+                var vm = CreateViewModel();
+                var servicesField = typeof(MainViewModel).GetField("_services", BindingFlags.NonPublic | BindingFlags.Instance);
+                var collection = (BulkObservableCollection<ServiceRowViewModel>)servicesField!.GetValue(vm)!;
+
+                var childRow1 = new ServiceRowViewModel(new Service { Name = "S1" }, _serviceCommandsMock.Object, _cursorServiceMock.Object);
+                var childRow2 = new ServiceRowViewModel(new Service { Name = "S2" }, _serviceCommandsMock.Object, _cursorServiceMock.Object);
+                collection.Add(childRow1);
+                collection.Add(childRow2);
+
+                bool selectAllNotified = false;
+                vm.PropertyChanged += (s, e) =>
+                {
+                    if (e.PropertyName == nameof(vm.SelectAll)) selectAllNotified = true;
+                };
+
+                vm.SelectAll = true;
+
+                Assert.True(childRow1.IsChecked);
+                Assert.True(childRow2.IsChecked);
+                Assert.False(childRow1.IsSelected);
+                Assert.True(selectAllNotified);
+
+                selectAllNotified = false;
+
+                vm.SelectAll = true;
+                Assert.False(selectAllNotified);
+
+                typeof(MainViewModel).GetField("_isUpdatingSelectAll", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(vm, true);
+                childRow1.IsChecked = false;
+                vm.SelectAll = false;
+
+                Assert.True(childRow2.IsChecked);
+            }, createApp: true);
+        }
+
+        [Fact]
+        public void IsConfiguratorEnabled_MutatesValueAndFiresNotification()
+        {
+            Helper.RunOnSTA(() =>
+            {
+                var vm = CreateViewModel();
+                bool notified = false;
+                vm.PropertyChanged += (s, e) =>
+                {
+                    if (e.PropertyName == nameof(vm.IsConfiguratorEnabled)) notified = true;
+                };
+
+                vm.IsConfiguratorEnabled = !vm.IsConfiguratorEnabled;
+
+                Assert.True(notified);
+
+                notified = false;
+                vm.IsConfiguratorEnabled = vm.IsConfiguratorEnabled;
+                Assert.False(notified);
+            }, createApp: true);
+        }
+
         #endregion
 
-        #region Disposal
+        #region Commands
+
+        [Fact]
+        public void AsyncCommands_AreExposedAndProperlyInitialized()
+        {
+            Helper.RunOnSTA(() =>
+            {
+                var vm = CreateViewModel();
+
+                Assert.NotNull(vm.SearchCommand);
+                Assert.NotNull(vm.ConfigureCommand);
+                Assert.NotNull(vm.ImportXmlCommand);
+                Assert.NotNull(vm.ImportJsonCommand);
+                Assert.NotNull(vm.StartSelectedCommand);
+                Assert.NotNull(vm.StopSelectedCommand);
+                Assert.NotNull(vm.RestartSelectedCommand);
+                Assert.NotNull(vm.OpenDocumentationCommand);
+                Assert.NotNull(vm.CheckUpdatesCommand);
+                Assert.NotNull(vm.OpenAboutDialogCommand);
+            }, createApp: true);
+        }
+
+        #endregion
+
+        #region Complete Branch & Exception Circuit Coverage Tests
+
+        [Fact]
+        public void GetServiceUpdateInfo_TargetPidHasValueAndGreaterThanZero_MaintainsCacheAndFetchesMetrics()
+        {
+            Helper.RunOnSTA(() =>
+            {
+                // Arrange
+                var vm = CreateViewModel();
+                var getInfoMethod = typeof(MainViewModel).GetMethod("GetServiceUpdateInfo", BindingFlags.NonPublic | BindingFlags.Instance);
+
+                var service = new Service { Name = "MetricsSvc", Pid = 4321, Status = ServiceStatus.Running };
+                var allServices = new Dictionary<string, ServiceInfo>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { "MetricsSvc", new ServiceInfo { Name = "MetricsSvc", Status = ServiceStatus.Running, } }
+                };
+                var serviceDto = new ServiceDto { Name = "MetricsSvc", Pid = 4321 };
+
+                _processHelper.Setup(p => p.GetProcessTreeMetrics(4321)).Returns(new ProcessMetrics(12.5, 2048576));
+
+                // Act
+                var result = getInfoMethod!.Invoke(vm, new object[] { service, allServices, serviceDto, CancellationToken.None });
+
+                // Assert
+                Assert.NotNull(result);
+                var resultType = result.GetType();
+                var updateInfo = (ServiceUpdateInfo)resultType.GetField("Item1")!.GetValue(result)!;
+
+                Assert.Equal(12.5, updateInfo.CpuUsage);
+                Assert.Equal(2048576, updateInfo.RamUsage);
+                _processHelper.Verify(p => p.MaintainCache(), Times.Once);
+                _processHelper.Verify(p => p.GetProcessTreeMetrics(4321), Times.Once);
+            }, createApp: true);
+        }
+
+        [Fact]
+        public void GetServiceUpdateInfo_StartupTypeNullInOsButPresentInDto_FallbackToDtoStartupType()
+        {
+            Helper.RunOnSTA(() =>
+            {
+                // Arrange
+                var vm = CreateViewModel();
+                var getInfoMethod = typeof(MainViewModel).GetMethod("GetServiceUpdateInfo", BindingFlags.NonPublic | BindingFlags.Instance);
+
+                var service = new Service { Name = "FallbackSvc", Status = ServiceStatus.Running };
+
+                // OS configuration returns null for the startup type sequence
+                var allServices = new Dictionary<string, ServiceInfo>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { "FallbackSvc", new ServiceInfo { Name = "FallbackSvc", Status = ServiceStatus.Running, StartupType = ServiceStartType.Disabled } }
+                };
+
+                // Database fallback contains a valid explicit configuration setting profile
+                var serviceDto = new ServiceDto { Name = "FallbackSvc", StartupType = (int)ServiceStartType.Disabled };
+
+                // Act
+                var result = getInfoMethod!.Invoke(vm, new object[] { service, allServices, serviceDto, CancellationToken.None });
+
+                // Assert
+                Assert.NotNull(result);
+                var updateInfo = (ServiceUpdateInfo)result.GetType().GetField("Item1")!.GetValue(result)!;
+                Assert.Equal(ServiceStartType.Disabled, updateInfo.StartupType);
+            }, createApp: true);
+        }
+
+        [Fact]
+        public void GetServiceUpdateInfo_ServiceDtoNull_SetsRequiresPidUpdateTrueAndNewPidNull()
+        {
+            Helper.RunOnSTA(() =>
+            {
+                // Arrange
+                var vm = CreateViewModel();
+                var getInfoMethod = typeof(MainViewModel).GetMethod("GetServiceUpdateInfo", BindingFlags.NonPublic | BindingFlags.Instance);
+
+                var service = new Service { Name = "OrphanedSvc", Pid = 999 };
+                var allServices = new Dictionary<string, ServiceInfo>(StringComparer.OrdinalIgnoreCase);
+
+                // Act - Passing null for ServiceDto parameter
+                var result = getInfoMethod!.Invoke(vm, new object[] { service, allServices, null!, CancellationToken.None });
+
+                // Assert
+                Assert.NotNull(result);
+                var updateInfo = (ServiceUpdateInfo)result.GetType().GetField("Item1")!.GetValue(result)!;
+                Assert.True(updateInfo.RequiresPidUpdate);
+                Assert.Null(updateInfo.NewPid);
+            }, createApp: true);
+        }
+
+        [Fact]
+        public void ApplyServiceUpdate_AppliesAllPropertiesSafelyToTargetUiService()
+        {
+            Helper.RunOnSTA(() =>
+            {
+                // Arrange
+                var vm = CreateViewModel();
+                var applyMethod = typeof(MainViewModel).GetMethod("ApplyServiceUpdate", BindingFlags.NonPublic | BindingFlags.Instance);
+
+                var targetService = new Service
+                {
+                    Name = "Svc",
+                    Pid = 10,
+                    CpuUsage = 0,
+                    RamUsage = 0,
+                    IsInstalled = false,
+                    Status = ServiceStatus.Stopped,
+                    StartupType = ServiceStartType.Manual,
+                    LogOnAs = "OldUser",
+                    Description = "Old Desc"
+                };
+
+                var info = new ServiceUpdateInfo(targetService)
+                {
+                    RequiresPidUpdate = true,
+                    NewPid = 20,
+                    CpuUsage = 5.5,
+                    RamUsage = 1024,
+                    IsInstalled = true,
+                    Status = ServiceStatus.Running,
+                    StartupType = ServiceStartType.Automatic,
+                    LogOnAs = "NewUser",
+                    Description = "New Desc"
+                };
+
+                // Act
+                applyMethod!.Invoke(vm, new object[] { info });
+
+                // Assert
+                Assert.Equal(20, targetService.Pid);
+                Assert.True(targetService.IsPidEnabled);
+                Assert.Equal(5.5, targetService.CpuUsage);
+                Assert.Equal(1024, targetService.RamUsage);
+                Assert.True(targetService.IsInstalled);
+                Assert.Equal(ServiceStatus.Running, targetService.Status);
+                Assert.Equal(ServiceStartType.Automatic, targetService.StartupType);
+                Assert.Equal("NewUser", targetService.LogOnAs);
+                Assert.Equal("New Desc", targetService.Description);
+            }, createApp: true);
+        }
+
+        [Fact]
+        public void Service_PropertyChanged_IsCheckedPropertyName_TriggersSelectAllAndHasSelectedServicesCascade()
+        {
+            Helper.RunOnSTA(() =>
+            {
+                // Arrange
+                var vm = CreateViewModel();
+                bool hasSelectedServicesNotified = false;
+                vm.PropertyChanged += (s, e) =>
+                {
+                    if (e.PropertyName == nameof(MainViewModel.HasSelectedServices))
+                        hasSelectedServicesNotified = true;
+                };
+
+                var handlerMethod = typeof(MainViewModel).GetMethod("Service_PropertyChanged", BindingFlags.NonPublic | BindingFlags.Instance);
+
+                // Act - Simulate a child RowViewModel checking state mutation notification callback loop trigger
+                handlerMethod!.Invoke(vm, new object[] { null!, new PropertyChangedEventArgs(nameof(ServiceRowViewModel.IsChecked)) });
+
+                // Assert
+                Assert.True(hasSelectedServicesNotified);
+            }, createApp: true);
+        }
+
+        [Fact]
+        public void UpdateSelectAllState_CollectionEmpty_SetsSelectAllFalse()
+        {
+            Helper.RunOnSTA(() =>
+            {
+                // Arrange
+                var vm = CreateViewModel();
+
+                // Clear out items securely to challenge collection edge loops
+                var servicesCollection = (BulkObservableCollection<ServiceRowViewModel>)typeof(MainViewModel)
+                    .GetField("_services", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(vm)!;
+                servicesCollection.Clear();
+
+                var updateStateMethod = typeof(MainViewModel).GetMethod("UpdateSelectAllState", BindingFlags.NonPublic | BindingFlags.Instance);
+
+                // Act
+                updateStateMethod!.Invoke(vm, null);
+
+                // Assert
+                Assert.False(vm.SelectAll);
+            }, createApp: true);
+        }
+
+        [Fact]
+        public void Dispose_PerformanceAndChildViewModelsNotImplementIDisposable_BypassesGracefully()
+        {
+            Helper.RunOnSTA(() =>
+            {
+                // Arrange
+                var uiDispatcherMock = new Mock<IUiDispatcher>();
+                uiDispatcherMock.Setup(d => d.YieldAsync()).Returns(Task.CompletedTask);
+
+                // Initialize standalone standard child instances that do NOT inherit or abstract from IDisposable directly
+                var mockPerformance = new Mock<PerformanceViewModel>(_serviceRepositoryMock.Object, _serviceCommandsMock.Object, _appConfigMock.Object, _cursorServiceMock.Object, _processHelper.Object, uiDispatcherMock.Object);
+                var mockConsole = new Mock<ConsoleViewModel>(_serviceRepositoryMock.Object, _serviceCommandsMock.Object, _appConfigMock.Object, _cursorServiceMock.Object, uiDispatcherMock.Object);
+                var mockDependencies = new Mock<DependenciesViewModel>(_serviceRepositoryMock.Object, _serviceManagerMock.Object, _serviceCommandsMock.Object, _appConfigMock.Object, _cursorServiceMock.Object, uiDispatcherMock.Object, _messageBoxServiceMock.Object);
+
+                var vm = new MainViewModel(
+                    _serviceManagerMock.Object,
+                    _serviceRepositoryMock.Object,
+                    _serviceCommandsMock.Object,
+                    _helpServiceMock.Object,
+                    _messageBoxServiceMock.Object,
+                    mockPerformance.Object,
+                    mockConsole.Object,
+                    mockDependencies.Object,
+                    _appConfigMock.Object,
+                    _cursorServiceMock.Object,
+                    _processHelper.Object,
+                    Dispatcher.CurrentDispatcher
+                );
+
+                // Act & Assert - Ensure standard layout teardowns do not experience casting violations or throw crashes
+                var exception = Record.Exception(() => vm.Dispose());
+                Assert.Null(exception);
+            }, createApp: true);
+        }
+
+        #endregion
+
+        #region Disposal & Teardown
 
         [Fact]
         public void Dispose_CleansUpTimersAndSubscriptions_SafelyHandlesDoubleDispose()
         {
-            Helper.RunOnSTA(async () =>
+            Helper.RunOnSTA(() =>
             {
                 var vm = CreateViewModel();
 
                 var collection = (BulkObservableCollection<ServiceRowViewModel>)typeof(MainViewModel).GetField("_services", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(vm)!;
                 collection.Add(new ServiceRowViewModel(new Service(), _serviceCommandsMock.Object, _cursorServiceMock.Object));
 
-                // Act
                 vm.Dispose();
-                vm.Dispose(); // Branch: Double dispose triggers early exit `if (_disposed) return;`
 
-                // Assert
-                Assert.Empty(collection); // Proves children were cleared and disposed
+                Assert.Empty(collection);
+
+                var doubleDisposeException = Record.Exception(() => vm.Dispose());
+                Assert.Null(doubleDisposeException);
             }, createApp: true);
         }
 

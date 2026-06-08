@@ -50,7 +50,7 @@ namespace Servy.UI.IntegrationTests.Services
         public async Task ResetCursor_FromBackgroundThread_InvokesOnDispatcher()
         {
             // Use the persistent STA context instead of the synchronous RunInSTA
-            await Helper.RunInSTAContext(async () =>
+            await Helper.RunOnSTA(async () =>
             {
                 EnsureApplicationContext();
                 Mouse.OverrideCursor = Cursors.Hand;
@@ -91,22 +91,6 @@ namespace Servy.UI.IntegrationTests.Services
             {
                 new Application();
             }
-        }
-
-        /// <summary>
-        /// Forces the dispatcher to process all pending messages, 
-        /// including the InvokeAsync call from the service.
-        /// </summary>
-        private static void DoEvents()
-        {
-            var frame = new DispatcherFrame();
-            Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background,
-                new DispatcherOperationCallback(f =>
-                {
-                    ((DispatcherFrame)f!).Continue = false;
-                    return null;
-                }), frame);
-            Dispatcher.PushFrame(frame);
         }
 
         #endregion

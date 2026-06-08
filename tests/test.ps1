@@ -9,19 +9,16 @@
     3. Collects code coverage in Cobertura format.
     4. Generates an aggregated HTML coverage report using ReportGenerator.
 
-.PARAMETER None
-    No parameters are required; the script is self-contained.
-
-.REQUIREMENTS
-    - .NET SDK installed and accessible in PATH.
-    - ReportGenerator tool installed and available in PATH.
-
 .EXAMPLE
     ./test.ps1
     Runs all unit tests and generates the coverage report.
 
 .NOTES
     Author: Akram El Assas
+
+    Requirements:
+      - .NET SDK installed and accessible in PATH.
+      - ReportGenerator tool installed and available in PATH.
 #>
 
 $ErrorActionPreference = "Stop"
@@ -65,13 +62,15 @@ foreach ($Proj in $TestProjects) {
         exit 1
     }
 
-    Write-Host "Running tests for $($Proj)..."
+Write-Host "Running tests for $($Proj)..."
     dotnet test $Proj `
         --configuration Debug `
         --collect:"XPlat Code Coverage" `
         --results-directory $TestResultsDir `
-        -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura `
-           DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="**/*.xaml,**/*.xaml.cs,**/*.g.cs,**/obj/**/*"
+        -- `
+        DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura `
+        DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Exclude="[*.UnitTests]*,[*.IntegrationTests]*,[Servy.Testing]*,**/*.xaml,**/*.xaml.cs,**/*.g.cs,**/obj/**/*",`
+        DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.IncludeProperties="True"
     if ($LASTEXITCODE -ne 0) { Write-Error "dotnet test failed for $Proj"; exit $LASTEXITCODE }
 }
 
@@ -82,6 +81,7 @@ reportgenerator `
     -reports:$CoverageFiles `
     -targetdir:$CoverageReportDir `
     -reporttypes:Html `
+    -assemblyfilters:"-*.UnitTests;-*.IntegrationTests;-Servy.Testing" `
     -filefilters:"-**/*.xaml;-**/*.xaml.cs;-**/*.g.cs;-**/obj/**/*"
 if ($LASTEXITCODE -ne 0) { Write-Error "reportgenerator failed"; exit $LASTEXITCODE }
 

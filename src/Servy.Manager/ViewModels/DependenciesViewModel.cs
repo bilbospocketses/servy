@@ -37,9 +37,10 @@ namespace Servy.Manager.ViewModels
         #region Properties - Service Data
 
         private DependencyService? _selectedService;
+
         /// <summary>
-        /// Gets or sets the currently selected service. 
-        /// Changing this resets the console history and restarts file tailing for the new service paths.
+        /// Gets or sets the currently selected service.
+        /// Changing this reloads the dependency tree and restarts PID monitoring for the new service.
         /// </summary>
         public DependencyService? SelectedService
         {
@@ -78,26 +79,7 @@ namespace Servy.Manager.ViewModels
 
         #endregion
 
-        #region Properties - UI State & Search
-
-        private string _pid = UiConstants.NotAvailable;
-        /// <summary>
-        /// Gets or sets the Process ID string for display in the UI.
-        /// </summary>
-        public string Pid
-        {
-            get => _pid;
-            set => Set(ref _pid, value);
-        }
-
-        #endregion
-
         #region Commands
-
-        /// <summary>
-        /// Command to copy the current Process ID to the clipboard.
-        /// </summary>
-        public IAsyncCommand CopyPidCommand { get; }
 
         /// <summary>
         /// Command to refresh dependency tree.
@@ -142,7 +124,6 @@ namespace Servy.Manager.ViewModels
             _appConfig = appConfig ?? throw new ArgumentNullException(nameof(appConfig));
             _messageBoxService = messageBoxService ?? throw new ArgumentNullException(nameof(messageBoxService));
 
-            CopyPidCommand = new AsyncCommand(CopyPidAsync, _ => SelectedService?.Pid != null, name: nameof(CopyPidCommand));
             RefreshCommand = new AsyncCommand(LoadDependencyTreeAsync, name: nameof(RefreshCommand));
             ExpandAllCommand = new RelayCommand<object>(_ => SetExpansion(DependencyTree, true));
             CollapseAllCommand = new RelayCommand<object>(_ => SetExpansion(DependencyTree, false));
@@ -167,6 +148,9 @@ namespace Servy.Manager.ViewModels
         #endregion
 
         #region MonitoringViewModelBase Implementation
+
+        /// <inheritdoc/>
+        protected override ServiceItemBase? SelectedServiceItem => SelectedService;
 
         /// <inheritdoc/>
         protected override int RefreshIntervalMs => _appConfig.DependenciesRefreshIntervalInMs;
@@ -269,43 +253,6 @@ namespace Servy.Manager.ViewModels
                 {
                     SetExpansionRecursive(node.Dependencies, isExpanded, visited);
                 }
-            }
-        }
-
-        /// <summary>
-        /// Updates the PID display text based on the selected service's current state.
-        /// </summary>
-        /// <param name="service">Service model.</param>
-        private void SetPidText(ServiceItemBase service)
-        {
-            var pidTxt = service.Pid?.ToString() ?? UiConstants.NotAvailable;
-            if (Pid != pidTxt) Pid = pidTxt;
-        }
-
-        /// <summary>
-        /// Resets PID text.
-        /// </summary>
-        private void ResetPid()
-        {
-            Pid = UiConstants.NotAvailable;
-        }
-
-        /// <summary>
-        /// Copies the Process ID of the currently selected service to the system clipboard.
-        /// </summary>
-        /// <param name="parameter">Unused command parameter.</param>
-        private async Task CopyPidAsync(object? parameter)
-        {
-            if (ServiceCommands == null)
-            {
-                Logger.Warn("ServiceCommands is null. Cannot copy PID.");
-                return;
-            }
-
-            if (SelectedService?.Pid != null)
-            {
-                var service = ServiceMapper.ToModel(SelectedService);
-                await ServiceCommands.CopyPidAsync(service);
             }
         }
 

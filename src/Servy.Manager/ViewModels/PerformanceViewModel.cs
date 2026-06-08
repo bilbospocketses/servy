@@ -123,13 +123,6 @@ namespace Servy.Manager.ViewModels
         public double GraphWidth { get; } = 400;
         public double GraphHeight { get; } = 200;
 
-        private string _pid = UiConstants.NotAvailable;
-        public string Pid
-        {
-            get => _pid;
-            set => Set(ref _pid, value);
-        }
-
         private string _cpuUsage = UiConstants.NotAvailable;
         public string CpuUsage
         {
@@ -146,18 +139,13 @@ namespace Servy.Manager.ViewModels
 
         #endregion
 
-        #region Commands
-
-        public IAsyncCommand CopyPidCommand { get; }
-
-        #endregion
-
         #region Constructors
 
         /// <summary>
         /// Initializes a new instance of the <see cref="PerformanceViewModel"/> class.
         /// </summary>
         /// <param name="serviceRepository">Repository for service data access.</param>
+        /// <param name="serviceCommands">Commands for service operations.</param>
         /// <param name="appConfig">Application configuration settings.</param>
         /// <param name="cursorService">Service used to control the cursor state.</param>
         /// <param name="processHelper">The process helper used to format process commands.</param>
@@ -174,7 +162,6 @@ namespace Servy.Manager.ViewModels
             _serviceRepository = serviceRepository ?? throw new ArgumentNullException(nameof(serviceRepository));
             _appConfig = appConfig ?? throw new ArgumentNullException(nameof(appConfig));
             _processHelper = processHelper ?? throw new ArgumentNullException(nameof(processHelper));
-            CopyPidCommand = new AsyncCommand(CopyPidAsync, _ => SelectedService?.Pid != null, name: nameof(CopyPidCommand));
 
             InitTimer();
         }
@@ -195,6 +182,9 @@ namespace Servy.Manager.ViewModels
         #endregion
 
         #region MonitoringViewModelBase Implementation
+
+        /// <inheritdoc/>
+        protected override ServiceItemBase? SelectedServiceItem => SelectedService;
 
         /// <inheritdoc/>
         protected override int RefreshIntervalMs => _appConfig.PerformanceRefreshIntervalInMs;
@@ -225,6 +215,9 @@ namespace Servy.Manager.ViewModels
             _hadSelectedService = true;
 
             var currentPid = await _serviceRepository.GetServicePidAsync(currentSelection.Name, token);
+
+            // Drop this tick if the user switched services while we were awaiting the DB call.
+            if (!ReferenceEquals(currentSelection, _selectedService) || token.IsCancellationRequested) return;
 
             if (!currentPid.HasValue)
             {
@@ -291,16 +284,6 @@ namespace Servy.Manager.ViewModels
             CpuFillPoints = new PointCollection();
             RamPointCollection = new PointCollection();
             RamFillPoints = new PointCollection();
-        }
-
-        /// <summary>
-        /// Updates the PID display text based on the selected service's current state.
-        /// </summary>
-        /// <param name="service">Service model.</param>
-        private void SetPidText(ServiceItemBase service)
-        {
-            var pidTxt = service.Pid?.ToString() ?? UiConstants.NotAvailable;
-            if (Pid != pidTxt) Pid = pidTxt;
         }
 
         /// <summary>
@@ -379,25 +362,6 @@ namespace Servy.Manager.ViewModels
                 RamFillPoints = fillBuffer.Clone();
             }
         }
-
-        /// <summary>
-        /// Asynchronously copies the process identifier (PID) of the selected service to the clipboard or a designated
-        /// destination.
-        /// </summary>
-        /// <remarks>The method performs no action if no service is selected or if the selected service
-        /// does not have a PID.</remarks>
-        /// <param name="parameter">An optional parameter that can be used to pass additional data for the copy operation. This parameter is not
-        /// used by the method.</param>
-        /// <returns>A task that represents the asynchronous copy operation.</returns>
-        private async Task CopyPidAsync(object? parameter)
-        {
-            if (SelectedService?.Pid != null)
-            {
-                var service = ServiceMapper.ToModel(SelectedService);
-                await ServiceCommands.CopyPidAsync(service);
-            }
-        }
-
 
         #endregion
 
