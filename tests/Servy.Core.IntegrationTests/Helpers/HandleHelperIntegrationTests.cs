@@ -1,8 +1,6 @@
 ﻿using Microsoft.Win32;
 using Servy.Core.Helpers;
 using System.Diagnostics;
-using System.Reflection;
-using System.Runtime.InteropServices;
 
 namespace Servy.Core.IntegrationTests.Helpers
 {
@@ -19,14 +17,7 @@ namespace Servy.Core.IntegrationTests.Helpers
     [Collection("HandleHelperIntegrationTests")]
     public class HandleHelperIntegrationTests : IDisposable
     {
-        // Make the path and extraction state static so it only initializes once per test run
-        // FIX: Dynamically select the native Sysinternals binary based on runtime architecture to support ARM64 agents natively
-        private static readonly string _handleExePath = RuntimeInformation.OSArchitecture == Architecture.Arm64
-            ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "handle64a.exe")
-            : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "handle64.exe");
-        private static readonly object _extractionLock = new object();
-        private static bool _isExtracted = false;
-
+        private readonly string _handleExePath;
         private readonly List<string> _tempFiles = new List<string>();
         private readonly List<FileStream> _openedStreams = new List<FileStream>();
 
@@ -35,130 +26,30 @@ namespace Servy.Core.IntegrationTests.Helpers
         /// </summary>
         public HandleHelperIntegrationTests()
         {
-            ExtractHandleExe();
+            // 1. Force execution asset extraction to disk
+            Testing.Helper.ExtractHandleExe();
 
-            if (!File.Exists(_handleExePath))
-            {
-                Debug.WriteLine($"WARNING: handle64.exe not found and extraction failed at {_handleExePath}");
-            }
-            else
-            {
-                // Auto-accept Sysinternals EULA in the registry hive context to prevent the headless runner from hanging
-                AcceptSysinternalsEula();
+            // 2. Fetch the resolved cross-architecture path string token
+            _handleExePath = Testing.Helper.HandleExePath;
 
-                // Guard against Sysinternals kernel-driver load timeouts on cold CI/CD virtual nodes.
-                // If the dynamic driver creation takes longer than the strict execution timeout limits,
-                // catch the exception, allow conhost to catch up, and attempt a secondary deterministic pass.
-                try
-                {
-                    // A dummy run ensures the driver is extracted and loaded 
-                    // before the actual timing-sensitive tests run.
-                    HandleHelper.GetProcessesUsingFile(_handleExePath, Path.GetTempPath());
-                }
-                catch (TimeoutException)
-                {
-                    Debug.WriteLine("WARNING: Initial handle.exe cold-start timed out while mounting kernel objects. Executing retry pass...");
-                    Thread.Sleep(1000);
+            // 3. CRITICAL DEFECT GUARD: Assert file physically exists right now
+            // If extraction fails due to directory locks, this stops the test context immediately with an explicit error.
+            Assert.True(File.Exists(_handleExePath), $"Lifecycle Extraction Fault: '{_handleExePath}' could not be verified on the local disk file table.");
 
-                    // Second pass: the driver is now unpacked or registered, so this execution path should complete immediately.
-                    HandleHelper.GetProcessesUsingFile(_handleExePath, Path.GetTempPath());
-                }
-            }
-        }
+            // Auto-accept Sysinternals EULA in the registry hive context to prevent headless runner hangs
+            Testing.Helper.AcceptSysinternalsEula();
 
-        /// <summary>
-        /// Programs the current user registry environment to suppress the Sysinternals graphical license box prompt.
-        /// </summary>
-        private void AcceptSysinternalsEula()
-        {
             try
             {
-                // Sysinternals tools check for acceptance under HKCU\Software\Sysinternals\Handle
-                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(@"Software\Sysinternals\Handle"))
-                {
-                    if (key != null)
-                    {
-                        key.SetValue("EulaAccepted", 1, RegistryValueKind.DWord);
-                    }
-                }
+                // Cold-start driver check
+                HandleHelper.GetProcessesUsingFile(_handleExePath, Path.GetTempPath());
             }
-            catch (Exception ex)
+            catch (TimeoutException)
             {
-                Debug.WriteLine($"WARNING: Failed to pre-seed EulaAccepted registry key. Details: {ex.Message}");
-            }
-        }
+                Debug.WriteLine("WARNING: Initial handle.exe cold-start timed out while mounting kernel objects. Executing retry pass...");
+                Thread.Sleep(1000);
 
-        /// <summary>
-        /// Extracts handle64.exe from the assembly's embedded resources to the base directory.
-        /// </summary>
-        private void ExtractHandleExe()
-        {
-            // Fast path: if already extracted in this process, skip immediately
-            if (_isExtracted || File.Exists(_handleExePath)) return;
-
-            // Static lock prevents multiple class instances from extracting simultaneously
-            lock (_extractionLock)
-            {
-                // Double-check pattern: the file might have been created while we waited for the lock
-                if (_isExtracted || File.Exists(_handleExePath))
-                {
-                    _isExtracted = true;
-                    return;
-                }
-
-                var assembly = Assembly.GetExecutingAssembly();
-                // Resource names usually follow: ProjectNamespace.Folder.FileName.Extension
-                // Dynamically select the resource manifest lookup string matching the target platform asset
-                string targetFileName = RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "handle64a.exe" : "handle64.exe";
-                string resourceName = $"Servy.Core.IntegrationTests.Resources.{targetFileName}";
-
-                using (Stream? resourceStream = assembly.GetManifestResourceStream(resourceName))
-                {
-                    if (resourceStream == null)
-                    {
-                        // Fallback: try to find the resource by name if the full namespace path is unknown
-                        var actualName = assembly.GetManifestResourceNames()
-                            .FirstOrDefault(n => n.EndsWith(targetFileName));
-
-                        if (actualName == null) return;
-
-                        using (var fallbackStream = assembly.GetManifestResourceStream(actualName))
-                        {
-                            WriteResourceToDisk(fallbackStream);
-                        }
-                    }
-                    else
-                    {
-                        WriteResourceToDisk(resourceStream);
-                    }
-                }
-
-                _isExtracted = true;
-            }
-        }
-
-        private void WriteResourceToDisk(Stream? stream)
-        {
-            try
-            {
-                if (stream == null) return;
-
-                // If the file somehow exists but _isExtracted was false, 
-                // FileMode.Create would fail if another process is even just reading it.
-                // We only write if the file isn't physically there.
-                if (File.Exists(_handleExePath)) return;
-
-                // Added FileShare.ReadWrite. On CI, Antivirus or Windows Indexer 
-                // often grab handles the millisecond a file is created.
-                using (FileStream fileStream = new FileStream(_handleExePath, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite))
-                {
-                    stream.CopyTo(fileStream);
-                }
-            }
-            catch (IOException ex) when (ex.HResult == unchecked((int)0x80070050)) // ERROR_FILE_EXISTS
-            {
-                // If we hit a race where the file was created between our check and our open, 
-                // it's a win-the file is there.
+                HandleHelper.GetProcessesUsingFile(_handleExePath, Path.GetTempPath());
             }
         }
 
@@ -229,13 +120,29 @@ namespace Servy.Core.IntegrationTests.Helpers
                 _openedStreams.Add(fs); // Keep track for disposal
 
                 // Act
-                var results = HandleHelper.GetProcessesUsingFile(_handleExePath, testFile);
+                List<HandleHelper.ProcessHandleInfo> results = null!;
+                bool handleDetected = false;
+
+                // Retry up to 5 times with a small delay to handle OS propagation latency
+                const int maxRetries = 5;
+                for (int i = 0; i < maxRetries; i++)
+                {
+                    results = HandleHelper.GetProcessesUsingFile(_handleExePath, testFile);
+                    if (results.Any(p => p.ProcessId == currentPid))
+                    {
+                        handleDetected = true;
+                        break;
+                    }
+                    Thread.Sleep(50); // Small backoff window
+                }
 
                 // Assert
+                Assert.True(handleDetected, $"Current process (PID {currentPid}) failed to be detected holding a handle to {testFile} after retries.");
                 Assert.NotEmpty(results);
-                var selfMatch = results.FirstOrDefault(p => p.ProcessId == currentPid);
 
+                var selfMatch = results.FirstOrDefault(p => p.ProcessId == currentPid);
                 Assert.NotNull(selfMatch);
+
                 // handle.exe output might include .exe or not, HandleHelper trims whitespace.
                 Assert.Contains(currentName, selfMatch.ProcessName, StringComparison.OrdinalIgnoreCase);
             }

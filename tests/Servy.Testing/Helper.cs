@@ -1,12 +1,113 @@
-﻿using Servy.Core.Native;
+﻿using Microsoft.Win32;
+using Servy.Core.Native;
+using System.Diagnostics;
+using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Windows.Threading;
 
 namespace Servy.Testing
 {
-    public class Helper
+    public static class Helper
     {
+        /// <summary>
+        /// Handle Exe Path.
+        /// Dynamically select the native Sysinternals binary based on runtime architecture to support ARM64 agents natively.
+        /// </summary>
+        public static readonly string HandleExePath = RuntimeInformation.OSArchitecture == Architecture.Arm64
+            ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "handle64a.exe")
+            : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "handle64.exe");
+
+        private static readonly object _extractionLock = new object();
+
+        /// <summary>
+        /// Extracts handle64.exe from the assembly's embedded resources to the base directory.
+        /// </summary>
+        public static void ExtractHandleExe()
+        {
+            // Check if the file physically exists on the disk frame right now
+            if (File.Exists(HandleExePath)) return;
+
+            lock (_extractionLock)
+            {
+                // Double-check lock validation step
+                if (File.Exists(HandleExePath)) return;
+
+                var assembly = Assembly.GetExecutingAssembly();
+                string targetFileName = RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "handle64a.exe" : "handle64.exe";
+                string resourceName = $"Servy.Core.IntegrationTests.Resources.{targetFileName}";
+
+                using (Stream? resourceStream = assembly.GetManifestResourceStream(resourceName))
+                {
+                    if (resourceStream == null)
+                    {
+                        var actualName = assembly.GetManifestResourceNames()
+                            .FirstOrDefault(n => n.EndsWith(targetFileName));
+
+                        if (actualName == null)
+                            throw new FileNotFoundException($"Embedded resource metadata mapping for '{targetFileName}' was not found in the manifest layout.");
+
+                        using (var fallbackStream = assembly.GetManifestResourceStream(actualName))
+                        {
+                            WriteResourceToDisk(fallbackStream);
+                        }
+                    }
+                    else
+                    {
+                        WriteResourceToDisk(resourceStream);
+                    }
+                }
+            }
+        }
+
+        private static void WriteResourceToDisk(Stream? stream)
+        {
+            try
+            {
+                if (stream == null) return;
+
+                // If the file somehow exists but _isExtracted was false, 
+                // FileMode.Create would fail if another process is even just reading it.
+                // We only write if the file isn't physically there.
+                if (File.Exists(HandleExePath)) return;
+
+                // Added FileShare.ReadWrite. On CI, Antivirus or Windows Indexer 
+                // often grab handles the millisecond a file is created.
+                using (FileStream fileStream = new FileStream(HandleExePath, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite))
+                {
+                    stream.CopyTo(fileStream);
+                }
+            }
+            catch (IOException ex) when (ex.HResult == unchecked((int)0x80070050)) // ERROR_FILE_EXISTS
+            {
+                // If we hit a race where the file was created between our check and our open, 
+                // it's a win-the file is there.
+            }
+        }
+
+        /// <summary>
+        /// Programs the current user registry environment to suppress the Sysinternals graphical license box prompt.
+        /// </summary>
+        public static void AcceptSysinternalsEula()
+        {
+            try
+            {
+                // Sysinternals tools check for acceptance under HKCU\Software\Sysinternals\Handle
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(@"Software\Sysinternals\Handle"))
+                {
+                    if (key != null)
+                    {
+                        key.SetValue("EulaAccepted", 1, RegistryValueKind.DWord);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"WARNING: Failed to pre-seed EulaAccepted registry key. Details: {ex.Message}");
+            }
+        }
+
         public static void RunOnSTA(Action action, bool createApp = false)
         {
             Exception? threadException = null;
