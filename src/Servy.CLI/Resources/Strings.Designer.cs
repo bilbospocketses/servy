@@ -189,7 +189,7 @@ namespace Servy.CLI.Resources {
         }
         
         /// <summary>
-        ///   Recherche une chaîne localisée semblable à Configuration output file type is required (XML or JSON)..
+        ///   Recherche une chaîne localisée semblable à Configuration file type is required (XML or JSON)..
         /// </summary>
         public static string Msg_InvalidConfigFileType {
             get {
