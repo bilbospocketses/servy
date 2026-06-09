@@ -11,6 +11,7 @@
 - Fork-forward rewrite of `README.md`, `NOTES.md`, and `ROADMAP.md` to establish the fork's identity and vision; `setup/*/README.md` de-branded as fork local-test notes.
 - Repository hardening / lockdown — branch + tag rulesets, SHA-pinned GitHub Actions.
 - Branch model restructured for at-will upstream sync: `vnext` is now the locked default branch (carries all fork work + the protection ruleset), and `main` is a pristine, unprotected mirror of `upstream/main` synced on demand via `gh repo sync`. The `build`/`test`/`security`/`loc` workflows were retargeted to `vnext`; the upstream `sonar` (SonarCloud) workflow is disabled in the fork.
+- CI resilience: the `test` workflow now retries flaky upstream integration tests (ProcessKiller file-lock termination, ProcessLauncher output multiplexing) up to 3× so transient runner-timing failures self-heal, and the ARM64 leg is now advisory (`continue-on-error`) since the fork does not ship ARM64 yet — only `Test (x64)` gates `vnext`. README build/test badges retargeted to `?branch=vnext`.
 
 ### Notes
 - The fork tracks upstream `main` (last synced to `a3563142`, 2026-06-05, post-8.4) and is otherwise **code-identical to upstream** — only documentation and CI triggers diverge, no product behavior. Released, signed Windows binaries come from upstream.
