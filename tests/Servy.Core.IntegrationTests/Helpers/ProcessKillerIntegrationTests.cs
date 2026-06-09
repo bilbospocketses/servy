@@ -1,6 +1,5 @@
 ﻿using Servy.Core.Helpers;
 using System.Diagnostics;
-using System.Reflection;
 
 namespace Servy.Core.IntegrationTests.Helpers
 {
@@ -9,10 +8,10 @@ namespace Servy.Core.IntegrationTests.Helpers
     /// </summary>
     public class ProcessKillerIntegrationTests : IDisposable
     {
+        private readonly string _handleExePath;
         private readonly ProcessKiller _processKiller;
         private readonly List<Process> _trackedProcesses;
         private readonly List<string> _tempFiles;
-        private readonly string _handleExePath;
 
         /// <summary>
         /// Initializes a new instance of the ProcessKillerIntegrationTests class, configuring tracking lists for safe teardown and ensuring necessary diagnostic utilities are extracted.
@@ -22,9 +21,19 @@ namespace Servy.Core.IntegrationTests.Helpers
             _processKiller = new ProcessKiller();
             _trackedProcesses = new List<Process>();
             _tempFiles = new List<string>();
-            _handleExePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "handle64.exe");
 
-            ExtractHandleExe();
+            // 1. Force execution asset extraction to disk
+            Testing.Helper.ExtractHandleExe();
+
+            // 2. Fetch the resolved cross-architecture path string token
+            _handleExePath = Testing.Helper.HandleExePath;
+
+            // 3. CRITICAL DEFECT GUARD: Assert file physically exists right now
+            // If extraction fails due to directory locks, this stops the test context immediately with an explicit error.
+            Assert.True(File.Exists(_handleExePath), $"Lifecycle Extraction Fault: '{_handleExePath}' could not be verified on the local disk file table.");
+
+            // Auto-accept Sysinternals EULA in the registry hive context to prevent headless runner hangs
+            Testing.Helper.AcceptSysinternalsEula();
         }
 
         /// <summary>
@@ -55,6 +64,10 @@ namespace Servy.Core.IntegrationTests.Helpers
                     try { File.Delete(file); } catch { }
                 }
             }
+
+            // DO NOT delete handle64.exe here.
+            // Deleting an executable while another test's constructor is initializing causes the IOException.
+            // Leaving it in the bin folder is completely safe for integration tests.
         }
 
         /// <summary>
@@ -418,34 +431,6 @@ namespace Servy.Core.IntegrationTests.Helpers
             }
 
             return lockingProcess;
-        }
-
-        /// <summary>
-        /// Extracts the handle64 executable from the test assembly's embedded resources directly to the execution directory to ensure file handle resolution functions optimally.
-        /// </summary>
-        private void ExtractHandleExe()
-        {
-            if (File.Exists(_handleExePath)) return;
-
-            try
-            {
-                var assembly = Assembly.GetExecutingAssembly();
-                var resourceName = assembly.GetManifestResourceNames()
-                    .FirstOrDefault(n => n.EndsWith("handle64.exe", StringComparison.OrdinalIgnoreCase));
-
-                if (resourceName != null)
-                {
-                    using (var resourceStream = assembly.GetManifestResourceStream(resourceName))
-                    using (var fileStream = new FileStream(_handleExePath, FileMode.Create, FileAccess.Write))
-                    {
-                        resourceStream?.CopyTo(fileStream);
-                    }
-                }
-            }
-            catch
-            {
-                // Swallow extraction errors; tests relying on handle.exe will safely bypass
-            }
         }
     }
 }
