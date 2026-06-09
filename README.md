@@ -1,5 +1,5 @@
-[![build](https://github.com/bilbospocketses/servy/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/bilbospocketses/servy/actions/workflows/build.yml)
-[![test](https://github.com/bilbospocketses/servy/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/bilbospocketses/servy/actions/workflows/test.yml)
+[![build](https://github.com/bilbospocketses/servy/actions/workflows/build.yml/badge.svg?branch=vnext)](https://github.com/bilbospocketses/servy/actions/workflows/build.yml)
+[![test](https://github.com/bilbospocketses/servy/actions/workflows/test.yml/badge.svg?branch=vnext)](https://github.com/bilbospocketses/servy/actions/workflows/test.yml)
 [![License](https://img.shields.io/github/license/bilbospocketses/servy)](LICENSE.txt)
 
 # Servy &nbsp;<sub>·&nbsp;`bilbospocketses` fork</sub>
