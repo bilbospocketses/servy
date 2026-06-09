@@ -12,9 +12,10 @@
 - Repository hardening / lockdown — branch + tag rulesets, SHA-pinned GitHub Actions.
 - Branch model for at-will upstream sync: `vnext` is the locked default branch (all fork work + the protection ruleset); the upstream mirror (first created as `main`, **renamed to `upstream-main`**) is a pristine, unprotected mirror of `upstream/main`, synced on demand via `git fetch upstream && git push origin upstream/main:upstream-main`. The fork's `build`/`test`/`security`/`loc` workflows run on `vnext`; the upstream `sonar` (SonarCloud) workflow does not run in the fork. Renaming the mirror off `main` stops it from re-running (and failing) upstream's `main`-triggered CI on every sync.
 - CI resilience: the `test` workflow now retries flaky upstream integration tests (ProcessKiller file-lock termination, ProcessLauncher output multiplexing) up to 3× so transient runner-timing failures self-heal, and the ARM64 leg is now advisory (`continue-on-error`) since the fork does not ship ARM64 yet — only `Test (x64)` gates `vnext`. README build/test badges retargeted to `?branch=vnext`.
+- CI: CodeQL (the `Static Analysis (CodeQL)` job in the `security` workflow) now runs on push-to-`vnext` + the weekly schedule only — **not on `pull_request`**. PR-time CodeQL gated each merge on GitHub's code-scanning backend finishing SARIF processing; on a large upstream-absorb PR that processing stalled ~30 min, leaving the `github-advanced-security` `CodeQL` check queued indefinitely and blocking auto-merge even though it is not a required status check. The post-merge push to `vnext` stays the authoritative scan (squash-merge fork); Dependency + Secret scanning still run on PRs.
 
 ### Notes
-- The fork tracks upstream `main` (last synced to `c6faed776`, 2026-06-08, post-8.4) and is otherwise **code-identical to upstream** — only documentation and CI triggers diverge, no product behavior. Released, signed Windows binaries come from upstream.
+- The fork tracks upstream `main` (last synced to `ef6b78644`, 2026-06-09, post-8.4) and is otherwise **code-identical to upstream** — only documentation and CI triggers diverge, no product behavior. Released, signed Windows binaries come from upstream.
 
 ---
 
