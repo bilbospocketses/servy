@@ -98,6 +98,14 @@ jobs:
   # 2. Static Analysis (SAST)
   # Uses GitHub CodeQL to find security vulnerabilities in the C# code
   static-analysis:
+    # Fork divergence: CodeQL runs on push-to-vnext + the weekly schedule only, NOT on
+    # pull_request. PR-time CodeQL gates the merge on GitHub's code-scanning backend
+    # finishing SARIF processing; on large upstream-absorb PRs that processing can hang
+    # indefinitely, leaving the github-advanced-security "CodeQL" check queued forever and
+    # blocking auto-merge even though it is not a required status check. The post-merge
+    # push to vnext is the authoritative scan for this squash-merge fork. Dependency and
+    # Secret scanning still run on PRs.
+    if: github.event_name != 'pull_request'
     timeout-minutes: 10
     name: Static Analysis (CodeQL)
     runs-on: windows-latest
