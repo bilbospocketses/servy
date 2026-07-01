@@ -3,12 +3,10 @@ using Servy.Core.Logging;
 using Servy.Core.Services;
 using Servy.Manager.Config;
 using Servy.Manager.Design;
-using Servy.Manager.Mappers;
 using Servy.Manager.Models;
 using Servy.Manager.Resources;
 using Servy.Manager.Services;
 using Servy.UI.Commands;
-using Servy.UI.Constants;
 using Servy.UI.Services;
 using System.Collections.ObjectModel;
 using System.Windows.Input;
@@ -27,8 +25,6 @@ namespace Servy.Manager.ViewModels
 
         private CancellationTokenSource? _loadTreeCts;
 
-        private bool _hadSelectedService;
-        private bool _disposedValue;
         private readonly IAppConfiguration _appConfig;
         private readonly IMessageBoxService _messageBoxService;
 
@@ -54,9 +50,9 @@ namespace Servy.Manager.ViewModels
 
                 _ = LoadDependencyTreeAsync(null);
 
-                CopyPidCommand?.RaiseCanExecuteChanged();
+                CopyPidCommand.RaiseCanExecuteChanged();
 
-                StopMonitoring(clearView: false); // We have already reset our own view state above; skip the base class OnMonitoringStopped callback.
+                StopMonitoring();
                 StartMonitoring();
             }
         }
@@ -66,16 +62,10 @@ namespace Servy.Manager.ViewModels
         /// </summary>
         public bool IsServiceSelected { get => SelectedService != null; }
 
-        private ObservableCollection<ServiceDependencyNode> _dependencyTree = new ObservableCollection<ServiceDependencyNode>();
-
         /// <summary>
         /// Service dependency tree.
         /// </summary>
-        public ObservableCollection<ServiceDependencyNode> DependencyTree
-        {
-            get => _dependencyTree;
-            private set => Set(ref _dependencyTree, value);
-        }
+        public ObservableCollection<ServiceDependencyNode> DependencyTree { get; } = new ObservableCollection<ServiceDependencyNode>();
 
         #endregion
 
@@ -162,23 +152,15 @@ namespace Servy.Manager.ViewModels
         }
 
         /// <inheritdoc/>
-        protected override async Task OnTickAsync()
+        protected override void ResetMonitoringState()
         {
-            var token = GetCurrentMonitoringToken();
+            ResetPid();
+        }
 
-            var currentSelection = SelectedService;
-            if (currentSelection == null)
-            {
-                if (_hadSelectedService)
-                {
-                    ResetPid();
-                    _hadSelectedService = false;
-                    CopyPidCommand?.RaiseCanExecuteChanged();
-                }
-                return;
-            }
-            _hadSelectedService = true;
-
+        /// <inheritdoc/>
+        protected override async Task ApplyTickAsync(ServiceItemBase selection, CancellationToken token)
+        {
+            var currentSelection = (DependencyService)selection;
             var currentPid = await _serviceRepository.GetServicePidAsync(currentSelection.Name, token);
 
             // Drop this tick if the user switched services while we were awaiting the DB call.
@@ -186,16 +168,19 @@ namespace Servy.Manager.ViewModels
 
             if (!currentPid.HasValue)
             {
-                ResetPid();
-                currentSelection.Pid = null;
-                CopyPidCommand?.RaiseCanExecuteChanged();
+                if (currentSelection.Pid != null)      // only act on the running -> stopped transition
+                {
+                    ResetPid();
+                    currentSelection.Pid = null;
+                    CopyPidCommand.RaiseCanExecuteChanged();
+                }
                 return;
             }
 
             if (currentSelection.Pid != currentPid)
             {
                 currentSelection.Pid = currentPid;
-                CopyPidCommand?.RaiseCanExecuteChanged();
+                CopyPidCommand.RaiseCanExecuteChanged();
             }
 
             SetPidText(currentSelection);
@@ -214,8 +199,6 @@ namespace Servy.Manager.ViewModels
         /// </param>
         private void SetExpansion(IEnumerable<ServiceDependencyNode> nodes, bool isExpanded)
         {
-            if (nodes == null) return;
-
             // Use a HashSet to track visited nodes and prevent infinite recursion in case of 
             // circular dependencies or shared nodes.
             var visited = new HashSet<ServiceDependencyNode>();
@@ -305,7 +288,7 @@ namespace Servy.Manager.ViewModels
             catch (Exception ex)
             {
                 Logger.Error($"Failed to load dependency tree for {serviceName}", ex);
-                await _messageBoxService.ShowErrorAsync(Strings.Msg_FailedToLoadDependencyTree, AppConfig.Caption);
+                await _messageBoxService.ShowErrorAsync(Strings.Msg_FailedToLoadDependencyTree, UiAppConfig.Caption);
             }
             finally
             {
@@ -322,22 +305,23 @@ namespace Servy.Manager.ViewModels
         /// </summary>
         protected override void Dispose(bool disposing)
         {
-            if (!_disposedValue)
+            if (Interlocked.Exchange(ref _isDisposed, 1) != 0)
             {
-                if (disposing)
-                {
-                    // Dispose Tree Loading CTS
-                    var oldLoadTreeCts = Interlocked.Exchange(ref _loadTreeCts, null);
-                    if (oldLoadTreeCts != null)
-                    {
-                        oldLoadTreeCts.Cancel();
-                        oldLoadTreeCts.Dispose();
-                    }
-                }
-
-                base.Dispose(disposing);
-                _disposedValue = true;
+                return;
             }
+
+            if (disposing)
+            {
+                // Dispose Tree Loading CTS
+                var oldLoadTreeCts = Interlocked.Exchange(ref _loadTreeCts, null);
+                if (oldLoadTreeCts != null)
+                {
+                    oldLoadTreeCts.Cancel();
+                    oldLoadTreeCts.Dispose();
+                }
+            }
+
+            base.Dispose(disposing);
         }
 
         #endregion

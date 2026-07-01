@@ -15,12 +15,10 @@ namespace Servy.Service.UnitTests
 {
     public class ProcessManagementTests
     {
-        private readonly Mock<IProcessHelper> _mockProcessHelper;
         private readonly Mock<IProcessKiller> _mockProcessKiller;
 
         public ProcessManagementTests()
         {
-            _mockProcessHelper = new Mock<IProcessHelper>();
             _mockProcessKiller = new Mock<IProcessKiller>();
         }
 
@@ -51,7 +49,6 @@ namespace Servy.Service.UnitTests
                 mockProcessFactory.Object,
                 mockPathValidator.Object,
                 mockServiceRepository.Object,
-                _mockProcessHelper.Object,
                 _mockProcessKiller.Object
                 );
         }
@@ -96,7 +93,6 @@ namespace Servy.Service.UnitTests
             var mockProcess = new Mock<IProcessWrapper>();
             mockProcess.Setup(p => p.HasExited).Returns(false);
             mockProcess.Setup(p => p.Stop(It.IsAny<int>())).Returns(true);
-            mockProcess.Setup(p => p.WaitForExit(It.IsAny<int>())).Returns(true);
 
             service.InvokeSafeKillProcess(mockProcess.Object);
 

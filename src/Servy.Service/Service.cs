@@ -136,7 +136,6 @@ namespace Servy.Service
         private volatile bool _disposed = false; // Tracks whether Dispose has been called
         private volatile bool _isTearingDown = false;
         private volatile bool _isRebooting = false;
-        private readonly IProcessHelper _processHelper;
         private readonly IProcessKiller _processKiller;
         private readonly IAppDbContext? _dbContext;
         private readonly ProtectedKeyProvider? _protectedKeyProvider;
@@ -164,13 +163,12 @@ namespace Servy.Service
         /// and cryptographic setup.
         /// </remarks>
         public Service() : this(
-            new Helpers.ServiceHelper(new CommandLineProvider(), new Core.Helpers.ProcessHelper()),
+            new Helpers.ServiceHelper(new CommandLineProvider(), new ProcessHelper()),
             new EventLogLogger(AppConfig.EventSource),
             new StreamWriterFactory(),
             new TimerFactory(),
             new ProcessFactory(),
             new PathValidator(),
-            new Core.Helpers.ProcessHelper(),
             new ProcessKiller()
           )
         {
@@ -186,7 +184,6 @@ namespace Servy.Service
         /// <param name="processFactory">The process factory.</param>
         /// <param name="pathValidator">The path validator.</param>
         /// <param name="serviceRepository">The service repository.</param>
-        /// <param name="processHelper">The process helper.</param>
         /// <param name="processKiller">The process killer.</param>
         /// <remarks>
         /// <b>NOTE:</b> This constructor is primarily intended for <b>Unit Testing</b> and <b>Inversion of Control (IoC)</b> containers.
@@ -208,7 +205,6 @@ namespace Servy.Service
             IProcessFactory processFactory,
             IPathValidator pathValidator,
             IServiceRepository serviceRepository,
-            IProcessHelper processHelper,
             IProcessKiller processKiller
             ) // allow injection
         {
@@ -221,7 +217,6 @@ namespace Servy.Service
             _processFactory = processFactory ?? throw new ArgumentNullException(nameof(processFactory));
             _pathValidator = pathValidator ?? throw new ArgumentNullException(nameof(pathValidator));
             _serviceRepository = serviceRepository ?? throw new ArgumentNullException(nameof(serviceRepository));
-            _processHelper = processHelper ?? throw new ArgumentNullException(nameof(processHelper));
             _processKiller = processKiller ?? throw new ArgumentNullException(nameof(processKiller));
             _options = null;
         }
@@ -235,7 +230,6 @@ namespace Servy.Service
         /// <param name="timerFactory">Factory to create timers for health monitoring.</param>
         /// <param name="processFactory">Factory to create process wrappers for launching and managing child processes.</param>
         /// <param name="pathValidator">Path Validator.</param>
-        /// <param name="processHelper">Helper used to enumerate, inspect, and snapshot child processes.</param>
         /// <param name="processKiller">Helper used to terminate processes (and process trees) during teardown.</param>
         /// <remarks>
         /// This is the primary <b>Production Constructor</b>. It automatically initializes the 
@@ -249,7 +243,6 @@ namespace Servy.Service
             ITimerFactory timerFactory,
             IProcessFactory processFactory,
             IPathValidator pathValidator,
-            IProcessHelper processHelper,
             IProcessKiller processKiller
             )
         {
@@ -268,7 +261,6 @@ namespace Servy.Service
                 _timerFactory = timerFactory ?? throw new ArgumentNullException(nameof(timerFactory));
                 _processFactory = processFactory ?? throw new ArgumentNullException(nameof(processFactory));
                 _pathValidator = pathValidator ?? throw new ArgumentNullException(nameof(pathValidator));
-                _processHelper = processHelper ?? throw new ArgumentNullException(nameof(processHelper));
                 _processKiller = processKiller ?? throw new ArgumentNullException(nameof(processKiller));
                 _options = null;
 
@@ -322,7 +314,7 @@ namespace Servy.Service
 
                 // Copy service executable from embedded resources
                 var asm = Assembly.GetExecutingAssembly();
-                var sh = new Core.Helpers.ServiceHelper(_serviceRepository);
+                var sh = new ServiceHelper(_serviceRepository);
                 var resourceHelper = new ResourceHelper(sh, _processKiller);
 
                 if (!resourceHelper.CopyEmbeddedResourceForceSync(asm, ResourcesNamespace, ServyRestarterExeFileName, "exe"))
@@ -350,7 +342,7 @@ namespace Servy.Service
                 // (like 13 from ProtectedKeyProvider), preserve it. Otherwise, set a generic service failure code.
                 if (Environment.ExitCode == 0)
                 {
-                    Environment.ExitCode = 1066; // ERROR_SERVICE_SPECIFIC_ERROR
+                    Environment.ExitCode = AppConfig.ServiceSpecificErrorCode; // ERROR_SERVICE_SPECIFIC_ERROR
                 }
 
                 // By explicitly calling Environment.Exit here, we guarantee the SCM registers 
@@ -391,7 +383,7 @@ namespace Servy.Service
                 if (options == null)
                 {
                     // Set a non-zero exit code so Windows knows it failed
-                    ExitCode = 1066; // ERROR_SERVICE_SPECIFIC_ERROR
+                    ExitCode = AppConfig.ServiceSpecificErrorCode; // ERROR_SERVICE_SPECIFIC_ERROR
                     throw new InvalidOperationException("Failed to initialize service options.");
                 }
 
@@ -404,7 +396,7 @@ namespace Servy.Service
                 // Log and Validate using the new scoped _logger
                 if (!_serviceHelper.ValidateAndLog(options, _logger))
                 {
-                    ExitCode = 1066; // ERROR_SERVICE_SPECIFIC_ERROR
+                    ExitCode = AppConfig.ServiceSpecificErrorCode; // ERROR_SERVICE_SPECIFIC_ERROR
                     Stop();
                     return;
                 }
@@ -440,7 +432,7 @@ namespace Servy.Service
                 // Request timeout for startup to accommodate slow process
                 if (_options.StartTimeoutInSeconds > AppConfig.ScmStartupRequestThresholdSeconds) // Use a lower threshold to be safe
                 {
-                    _serviceHelper.RequestAdditionalTime(this, ClampTimeout(_options.StartTimeoutInSeconds + 10), _logger!);
+                    _serviceHelper.RequestAdditionalTime(this, ClampTimeout(_options.StartTimeoutInSeconds + AppConfig.ScmStartupRequestBufferSeconds), _logger);
                 }
 
                 // Set up attempts file
@@ -566,7 +558,7 @@ namespace Servy.Service
             catch (Exception ex)
             {
                 _logger?.Error("Exception in OnStart.", ex);
-                if (ExitCode == 0) ExitCode = 1066; // ERROR_SERVICE_SPECIFIC_ERROR
+                if (ExitCode == 0) ExitCode = AppConfig.ServiceSpecificErrorCode; // ERROR_SERVICE_SPECIFIC_ERROR
                 Stop();
             }
         }
@@ -606,7 +598,7 @@ namespace Servy.Service
             string sanitized = name.TrimEnd(' ', '.', '\t');
 
             // Explicit guard against directory traversal sequences or inputs that normalize to empty/dots
-            if (string.IsNullOrEmpty(sanitized) || sanitized == "." || sanitized == "..")
+            if (string.IsNullOrEmpty(sanitized))
             {
                 sanitized = "_";
             }
@@ -840,8 +832,6 @@ namespace Servy.Service
                 else
                 {
                     resetThresholdSeconds = Math.Min(resetThresholdSeconds, cap);
-                    if (resetThresholdSeconds < detectionWindowSeconds)
-                        resetThresholdSeconds = detectionWindowSeconds;
                 }
 
                 if (_preLaunchEnabled)
@@ -926,8 +916,8 @@ namespace Servy.Service
                 WaitChunkMs = _waitChunkMs,
                 ScmAdditionalTimeMs = _scmAdditionalTimeMs,
                 OnScmHeartbeat = new Action<int>((time) => _serviceHelper.RequestAdditionalTime(this, time, _logger)),
-                StdOutPath = options.PreLaunchStdoutPath,
-                StdErrPath = options.PreLaunchStderrPath,
+                StdoutPath = options.PreLaunchStdoutPath,
+                StderrPath = options.PreLaunchStderrPath,
                 RedirectToWriters = !fireAndForget,
                 FireAndForget = fireAndForget,
                 LogErrorAsWarning = options.PreLaunchIgnoreFailure,
@@ -962,8 +952,7 @@ namespace Servy.Service
         /// </remarks>
         private int ClampTimeout(long timeout)
         {
-            // Use 1000L to force the multiplication into a 64-bit context before clamping
-            return (int)Math.Min(int.MaxValue, timeout * 1000L);
+            return (int)Math.Min(int.MaxValue, timeout * AppConfig.MillisecondsPerSecond);
         }
 
         /// <summary>
@@ -1123,11 +1112,11 @@ namespace Servy.Service
         /// </summary>
         /// <param name="options">The start options containing paths and rotation settings for stdout and stderr.</param>
         /// <remarks>
-        /// - If <see cref="StartOptions.StdOutPath"/> is valid, a <see cref="RotatingStreamWriter"/> is created for stdout.
-        /// - If <see cref="StartOptions.StdErrPath"/> is provided:
-        ///     - If it equals <see cref="StartOptions.StdOutPath"/> (case-insensitive), stderr shares the stdout writer.
-        ///     - Otherwise, a separate <see cref="RotatingStreamWriter"/> is created for stderr.
-        /// - If <see cref="StdErrPath"/> is null, empty, or whitespace, no stderr writer is created.
+        /// - If <see cref="StartOptions.StdoutPath"/> is valid, a <see cref="Core.IO.RotatingStreamWriter"/> is created for stdout.
+        /// - If <see cref="StartOptions.StderrPath"/> is provided:
+        ///     - If it equals <see cref="StartOptions.StdoutPath"/> (case-insensitive), stderr shares the stdout writer.
+        ///     - Otherwise, a separate <see cref="Core.IO.RotatingStreamWriter"/> is created for stderr.
+        /// - If <see cref="StartOptions.StderrPath"/> is null, empty, or whitespace, no stderr writer is created.
         /// </remarks>
         private void HandleLogWriters(StartOptions options)
         {
@@ -1156,17 +1145,17 @@ namespace Servy.Service
             }
 
             // Always create stdout writer if path is valid
-            _stdoutWriter = CreateWriter(options.StdOutPath);
+            _stdoutWriter = CreateWriter(options.StdoutPath);
 
             // Only create stderr writer if a path is provided
-            if (!string.IsNullOrWhiteSpace(options.StdErrPath))
+            if (!string.IsNullOrWhiteSpace(options.StderrPath))
             {
-                if (_stdoutWriter != null && !string.IsNullOrWhiteSpace(options.StdOutPath) &&
-                    _pathValidator.IsValidPath(options.StdErrPath) &&
-                    _pathValidator.IsValidPath(options.StdOutPath))
+                if (_stdoutWriter != null && !string.IsNullOrWhiteSpace(options.StdoutPath) &&
+                    _pathValidator.IsValidPath(options.StderrPath) &&
+                    _pathValidator.IsValidPath(options.StdoutPath))
                 {
-                    var canonStdErr = Helper.NormalizePath(options.StdErrPath);
-                    var canonStdOut = Helper.NormalizePath(options.StdOutPath);
+                    var canonStdErr = Helper.NormalizePath(options.StderrPath);
+                    var canonStdOut = Helper.NormalizePath(options.StdoutPath);
 
                     // If stderr path equals stdout path (explicitly), use the same writer
                     if (string.Equals(canonStdErr, canonStdOut, StringComparison.OrdinalIgnoreCase))
@@ -1175,7 +1164,7 @@ namespace Servy.Service
                         return;
                     }
                 }
-                _stderrWriter = CreateWriter(options.StdErrPath);
+                _stderrWriter = CreateWriter(options.StderrPath);
             }
         }
 
@@ -1211,47 +1200,27 @@ namespace Servy.Service
             _ = SetConsoleCtrlHandler(null, false); // inherited
             _ = SetConsoleOutputCP(CP_UTF8);
 
-            var (expandedEnv, expandedArgs) = Helpers.ProcessHelper.ExpandAndAudit(environmentVariables, realArgs, _logger, "StartProcess");
-
-            _realExePath = realExePath;
-            _realArgs = expandedArgs;
-            _workingDir = workingDir;
-            _environmentVariables = environmentVariables ?? new List<EnvironmentVariable>();
-
             var enableConsoleUI = _options?.EnableConsoleUI == true;
 
-            // Configure the process start info
-            var psi = new ProcessStartInfo
-            {
-                FileName = _realExePath,
-                Arguments = _realArgs,
-                WorkingDirectory = _workingDir,
-                UseShellExecute = false,
-                // If UI support is enabled, we MUST show the window (in Session 0 it remains invisible)
-                // and we MUST NOT redirect, otherwise the child gets a File Handle instead of a Console Handle.
-                CreateNoWindow = !enableConsoleUI,
-                RedirectStandardOutput = !enableConsoleUI,
-                RedirectStandardError = !enableConsoleUI,
-            };
+            // Delegate ProcessStartInfo generation to the central factory engine
+            var psi = ProcessLauncher.CreateStartInfo(
+                realExePath,
+                realArgs,
+                workingDir,
+                environmentVariables,
+                enableConsoleUI,
+                _logger,
+                "StartProcess");
+
+            _realExePath = psi.FileName;
+            _realArgs = psi.Arguments;
+            _workingDir = psi.WorkingDirectory;
+            _environmentVariables = environmentVariables ?? new List<EnvironmentVariable>();
 
             if (enableConsoleUI)
             {
                 _logger?.Info("Console UI support enabled. Standard output is being rendered to an internal console; stdout/stderr redirection is bypassed.");
             }
-
-            if (!enableConsoleUI)
-            {
-                psi.StandardOutputEncoding = Encoding.UTF8;
-                psi.StandardErrorEncoding = Encoding.UTF8;
-            }
-
-            foreach (var envVar in expandedEnv)
-            {
-                psi.Environment[envVar.Key] = envVar.Value ?? string.Empty;
-            }
-
-            // Apply runtime-specific fixes
-            ProcessLauncher.ApplyLanguageFixes(psi);
 
             _childProcess = _processFactory.Create(psi, _logger);
 
@@ -1517,8 +1486,8 @@ namespace Servy.Service
                     }
                     else
                     {
-                        serviceDto.ActiveStdoutPath = _options?.StdOutPath;
-                        serviceDto.ActiveStderrPath = _options?.StdErrPath;
+                        serviceDto.ActiveStdoutPath = _options?.StdoutPath;
+                        serviceDto.ActiveStderrPath = _options?.StderrPath;
                     }
 
                     _serviceRepository.Update(
@@ -1624,7 +1593,7 @@ namespace Servy.Service
                 {
                     // Calculate delay: Heartbeat interval minus a 5s buffer, minimum 5s.
                     var delayMs = Math.Max(ClampTimeout(_options!.HeartbeatInterval) - AppConfig.RecoverySchedulingDelayMs, AppConfig.RecoverySchedulingDelayMs);
-                    _logger?.Info($"[OnProcessExited] Failure threshold reached. Scheduling recovery in {delayMs / 1000}s...");
+                    _logger?.Info($"[OnProcessExited] Failure threshold reached. Scheduling recovery in {delayMs / AppConfig.MillisecondsPerSecond}s...");
 
                     // Fire-and-forget the recovery task safely
                     _ = ScheduleRecoveryAsync(delayMs);
@@ -1755,7 +1724,7 @@ namespace Servy.Service
         {
             if (_recoveryActionEnabled)
             {
-                _healthCheckTimer = _timerFactory.Create(options.HeartbeatInterval * 1000.0);
+                _healthCheckTimer = _timerFactory.Create(options.HeartbeatInterval * (double)AppConfig.MillisecondsPerSecond);
                 _healthCheckTimer.Elapsed += CheckHealth;
                 _healthCheckTimer.AutoReset = true;
                 _healthCheckTimer.Start();
@@ -1899,10 +1868,28 @@ namespace Servy.Service
 
             _logger?.Warn($"Performing recovery action '{_recoveryAction}' {attemptStatus}.");
 
+            // Prune exited hooks
+            lock (_trackedHooks)
+            {
+                for (int i = _trackedHooks.Count - 1; i >= 0; i--)
+                {
+                    var h = _trackedHooks[i];
+                    try
+                    {
+                        if (h.Process == null || h.Process.HasExited)
+                        {
+                            h.Dispose();
+                            _trackedHooks.RemoveAt(i);
+                        }
+                    }
+                    catch { /* leave for teardown */ }
+                }
+            }
+
             switch (_recoveryAction)
             {
                 case RecoveryAction.RestartService:
-                    _serviceHelper.RestartService(_logger!, _serviceName!);
+                    _serviceHelper.RestartService(_serviceName!, _logger);
                     break;
 
                 case RecoveryAction.RestartProcess:
@@ -1913,7 +1900,7 @@ namespace Servy.Service
                         _realArgs!,
                         _workingDir!,
                         _environmentVariables,
-                        _logger!,
+                        _logger,
                         ClampTimeout(_options?.StopTimeoutInSeconds ?? AppConfig.DefaultStopTimeout),
                         _cancellationSource?.Token ?? CancellationToken.None
                     );
@@ -1923,7 +1910,7 @@ namespace Servy.Service
                     try
                     {
                         _isRebooting = true;
-                        _serviceHelper.RestartComputer(_logger!);
+                        _serviceHelper.RestartComputer(_logger);
                     }
                     catch
                     {
@@ -2142,7 +2129,7 @@ namespace Servy.Service
                 else
                 {
                     _logger?.Error("Pre-Shutdown teardown reported failure; signaling SERVICE_STOPPED with non-zero exit code so SCM records the failure.");
-                    if (ExitCode == 0) ExitCode = 1066; // ERROR_SERVICE_SPECIFIC_ERROR
+                    if (ExitCode == 0) ExitCode = AppConfig.ServiceSpecificErrorCode; // ERROR_SERVICE_SPECIFIC_ERROR
                 }
                 UpdateServiceStatus(SERVICE_STOPPED, 0);
 
@@ -2205,7 +2192,7 @@ namespace Servy.Service
                 if (state == SERVICE_STOPPED && ExitCode != 0)
                 {
                     // ERROR_SERVICE_SPECIFIC_ERROR tells SCM to read dwServiceSpecificExitCode
-                    win32ExitCode = 1066; // ERROR_SERVICE_SPECIFIC_ERROR
+                    win32ExitCode = AppConfig.ServiceSpecificErrorCode; // ERROR_SERVICE_SPECIFIC_ERROR
                     specificExitCode = ExitCode;
                 }
 
@@ -2501,7 +2488,7 @@ namespace Servy.Service
         /// <returns><see langword="true"/> if the process succeeded or failures are ignored; otherwise <see langword="false"/>.</returns>
         private bool StartPreStopProcess(StartOptions options)
         {
-            if (_options == null || string.IsNullOrWhiteSpace(options.PreStopExecutablePath))
+            if (options == null || string.IsNullOrWhiteSpace(options.PreStopExecutablePath))
             {
                 _logger?.Info("No pre-stop executable configured. Skipping.");
                 return true;
@@ -2526,9 +2513,9 @@ namespace Servy.Service
                 // 1. Prepare Environment and Arguments
                 var args = options.PreStopExecutableArgs ?? string.Empty;
 
-                var workingDir = string.IsNullOrWhiteSpace(_options.PreStopWorkingDirectory)
-                    ? _options.WorkingDirectory
-                    : _options.PreStopWorkingDirectory;
+                var workingDir = string.IsNullOrWhiteSpace(options.PreStopWorkingDirectory)
+                    ? options.WorkingDirectory
+                    : options.PreStopWorkingDirectory;
 
                 // 2. Configure Launch Options
                 var effectiveTimeoutMs = ClampTimeout(options.PreStopTimeoutInSeconds);
@@ -2543,7 +2530,7 @@ namespace Servy.Service
                     TimeoutMs = effectiveTimeoutMs,
                     WaitChunkMs = _waitChunkMs,
                     ScmAdditionalTimeMs = _scmAdditionalTimeMs,
-                    OnScmHeartbeat = time => _serviceHelper.RequestAdditionalTime(this, time, _logger!),
+                    OnScmHeartbeat = time => _serviceHelper.RequestAdditionalTime(this, time, _logger),
                     LogErrorAsWarning = !logAsError,
                     EnableConsoleUI = options.EnableConsoleUI,
                 };
@@ -2674,7 +2661,7 @@ namespace Servy.Service
                     return mainExitedGracefully;
                 });
 
-                // 2. Wait for the task to complete in 5-second pulses
+                // 2. Wait for the task to complete in SafeKillProcessPulseIntervalMs pulses
                 // This prevents ContextSwitchDeadlock and keeps the SCM happy.
 
                 var maxWaitTime = TimeSpan.FromMilliseconds(totalTimeoutMs);
@@ -2694,7 +2681,7 @@ namespace Servy.Service
                             break; // Exit the loop and let the service finish/crash
                         }
 
-                        // Request 15s of "Wait Hint" every 5s pulse
+                        // Pulse the SCM wait-hint (_scmAdditionalTimeMs) once per SafeKillProcessPulseIntervalMs tick.
                         _serviceHelper.RequestAdditionalTime(this, _scmAdditionalTimeMs, null);
                     }
                 }

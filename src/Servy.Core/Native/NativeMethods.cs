@@ -14,10 +14,6 @@ namespace Servy.Core.Native
     {
         #region Constants
 
-        /// <summary>Required to query the status of a service.</summary>
-        public const int SERVICE_QUERY_STATUS = 0x0004;
-        /// <summary>Service start type: started by the service control manager when a process calls StartService.</summary>
-        public const int SERVICE_DEMAND_START = 0x00000003;
         /// <summary>Value used in ChangeServiceConfig to indicate no change to a parameter.</summary>
         public const uint SERVICE_NO_CHANGE = 0xFFFFFFFF;
         /// <summary>Control code to stop the service.</summary>
@@ -26,11 +22,6 @@ namespace Servy.Core.Native
         public const int SERVICE_CONFIG_DELAYED_AUTO_START_INFO = 0x00000003;
         /// <summary>Information level for QueryServiceConfig2/ChangeServiceConfig2: Service description.</summary>
         public const int SERVICE_CONFIG_DESCRIPTION = 1;
-
-        /// <summary>Access right to enumerate services in the SCM database.</summary>
-        public const uint SC_MANAGER_ENUMERATE_SERVICE = 0x0004;
-        /// <summary>Access right to query the configuration parameters of a service.</summary>
-        public const uint SERVICE_QUERY_CONFIG = 0x0001;
 
         /// <summary>Logon type: Interactive. Designed for users who will be using the computer interactively.</summary>
         public const int LOGON32_LOGON_INTERACTIVE = 2;
@@ -50,11 +41,6 @@ namespace Servy.Core.Native
         public const int ATTACH_PARENT_PROCESS = -1;
         /// <summary>UTF-8 code page identifier.</summary>
         public const uint CP_UTF8 = 65001;
-
-        /// <summary>Identifier for the standard output device.</summary>
-        public const int STD_OUTPUT_HANDLE = -11;
-        /// <summary>Identifier for the standard error device.</summary>
-        public const int STD_ERROR_HANDLE = -12;
 
         /// <summary>The service accepts pre-shutdown notifications.</summary>
         public const int SERVICE_ACCEPT_PRESHUTDOWN = 0x00000100;
@@ -92,15 +78,30 @@ namespace Servy.Core.Native
         /// <summary>Represents the Win32 error code indicating the provided buffer is too small to contain the data.</summary>
         public const int ERROR_INSUFFICIENT_BUFFER = 122;
 
+        /// <summary>
+        /// Represents the Win32 error code indicating that a data block or process table length changed 
+        /// between internal allocation queries (commonly thrown transiently by Toolhelp32 APIs).
+        /// </summary>
+        public const int ERROR_BAD_LENGTH = 24;
+
         #endregion
 
         #region SCM Access Rights
+
+        /// <summary>Access right to enumerate services in the SCM database.</summary>
+        public const uint SC_MANAGER_ENUMERATE_SERVICE = 0x0004;
 
         /// <summary>Access right to connect to the Service Control Manager.</summary>
         public const uint SC_MANAGER_CONNECT = 0x0001;
 
         /// <summary>Access right to create a service object and add it to the database.</summary>
         public const uint SC_MANAGER_CREATE_SERVICE = 0x0002;
+
+        /// <summary>Required to query the status of a service.</summary>
+        public const int SERVICE_QUERY_STATUS = 0x0004;
+
+        /// <summary>Access right to query the configuration parameters of a service.</summary>
+        public const uint SERVICE_QUERY_CONFIG = 0x0001;
 
         #endregion
 
@@ -121,6 +122,9 @@ namespace Servy.Core.Native
         #endregion
 
         #region Service Configuration & Type Flags
+
+        /// <summary>Service start type: started by the service control manager when a process calls StartService.</summary>
+        public const int SERVICE_DEMAND_START = 0x00000003;
 
         /// <summary>Logs the error and continues the startup operation if the service fails to start.</summary>
         public const uint SERVICE_ERROR_NORMAL = 0x00000001;
@@ -249,78 +253,71 @@ namespace Servy.Core.Native
             CTRL_SHUTDOWN_EVENT = 6,
         }
 
-        /// <summary>Information classes for Job Object configuration.</summary>
-        public enum JobObjectInfoClass
-        {
-            JobObjectExtendedLimitInformation = 9
-        }
-
-        /// <summary>Defines limit flags for job objects.</summary>
-        [Flags]
-        public enum JobLimits : uint
-        {
-            /// <summary>Forces all processes in the job to terminate when the job handle is closed.</summary>
-            KillOnJobClose = 0x00002000
-        }
-
-        /// <summary>Contains extended limit information for a job object.</summary>
-        [StructLayout(LayoutKind.Sequential)]
-        public struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-        {
-            public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
-            public IO_COUNTERS IoInfo;
-            public UIntPtr ProcessMemoryLimit;
-            public UIntPtr JobMemoryLimit;
-            public UIntPtr PeakProcessMemoryUsed;
-            public UIntPtr PeakJobMemoryUsed;
-        }
-
-        /// <summary>Contains basic limit information for a job object.</summary>
-        [StructLayout(LayoutKind.Sequential)]
-        public struct JOBOBJECT_BASIC_LIMIT_INFORMATION
-        {
-            public Int64 PerProcessUserTimeLimit;
-            public Int64 PerJobUserTimeLimit;
-            public JobLimits LimitFlags;
-            public UIntPtr MinimumWorkingSetSize;
-            public UIntPtr MaximumWorkingSetSize;
-            public UInt32 ActiveProcessLimit;
-            public Int64 Affinity;
-            public UInt32 PriorityClass;
-            public UInt32 SchedulingClass;
-        }
-
-        /// <summary>Contains I/O accounting information for a job object.</summary>
-        [StructLayout(LayoutKind.Sequential)]
-        public struct IO_COUNTERS
-        {
-            public UInt64 ReadOperationCount;
-            public UInt64 WriteOperationCount;
-            public UInt64 OtherOperationCount;
-            public UInt64 ReadTransferCount;
-            public UInt64 WriteTransferCount;
-            public UInt64 OtherTransferCount;
-        }
-
+        /// <summary>Represents the number of 100-nanosecond intervals since January 1, 1601 (UTC).</summary>
         [StructLayout(LayoutKind.Sequential)]
         public struct FILETIME
         {
+            /// <summary>Specifies the low-order 32 bits of the file time. </summary>
             public uint dwLowDateTime;
+            /// <summary>Specifies the high-order 32 bits of the file time.</summary>
             public uint dwHighDateTime;
         }
 
+        /// <summary>
+        /// Contains information that the <c>GetFileInformationByHandle</c> function retrieves.
+        /// Used across security gates to obtain absolute target identity locks (volume serial and index pairs).
+        /// </summary>
         [StructLayout(LayoutKind.Sequential)]
         public struct BY_HANDLE_FILE_INFORMATION
         {
+            /// <summary>
+            /// The file attributes, mapped directly to standard Win32 <see cref="System.IO.FileAttributes"/> flags.
+            /// </summary>
             public uint FileAttributes;
+
+            /// <summary>
+            /// A <see cref="FILETIME"/> structure specifying when the file or directory was created.
+            /// </summary>
             public FILETIME CreationTime;
+
+            /// <summary>
+            /// A <see cref="FILETIME"/> structure specifying when the file or directory was last accessed.
+            /// </summary>
             public FILETIME LastAccessTime;
+
+            /// <summary>
+            /// A <see cref="FILETIME"/> structure specifying when the file or directory was last written to.
+            /// </summary>
             public FILETIME LastWriteTime;
+
+            /// <summary>
+            /// The serial number of the volume that contains the file.
+            /// </summary>
             public uint VolumeSerialNumber;
+
+            /// <summary>
+            /// The high-order 32 bits of the file size.
+            /// </summary>
             public uint FileSizeHigh;
+
+            /// <summary>
+            /// The low-order 32 bits of the file size.
+            /// </summary>
             public uint FileSizeLow;
+
+            /// <summary>
+            /// The number of links to this file (hard links for NTFS filesystems).
+            /// </summary>
             public uint NumberOfLinks;
+
+            /// <summary>
+            /// The high-order 32 bits of a unique identifier associated with the file.
+            /// </summary>
             public uint FileIndexHigh;
+
+            /// <summary>
+            /// The low-order 32 bits of a unique identifier associated with the file.
+            /// </summary>
             public uint FileIndexLow;
         }
 
@@ -334,7 +331,6 @@ namespace Servy.Core.Native
             public uint VolumeSerialNumber;
 
             /// <summary>A digest of the start of the file for secondary identification.</summary>
-            /// <remarks>Renamed from PrefixHash to reflect its role as a content-based digest.</remarks>
             public string PrefixDigest;
 
             /// <summary>Indicates if handle-based information was successfully retrieved.</summary>
@@ -355,7 +351,7 @@ namespace Servy.Core.Native
                 if (IsValidHandleInfo != other.IsValidHandleInfo) return true;
 
                 // 1. Primary Probe: Win32 File Index and Volume Serial Number (Most reliable)
-                if (IsValidHandleInfo && other.IsValidHandleInfo)
+                if (IsValidHandleInfo)   // other.IsValidHandleInfo is guaranteed equal here
                 {
                     if (FileIndex != other.FileIndex || VolumeSerialNumber != other.VolumeSerialNumber)
                         return true;
@@ -438,7 +434,7 @@ namespace Servy.Core.Native
             uint dwInfoLevel,
             ref SERVICE_DELAYED_AUTO_START_INFO lpBuffer,
             int cbBufSize,
-            ref int pcbBytesNeeded);
+            out int pcbBytesNeeded);
 
         /// <summary>Retrieves optional configuration parameters using a raw buffer pointer.</summary>
         [DllImport("advapi32.dll", CharSet = CharSet.Auto, SetLastError = true)]
@@ -447,7 +443,7 @@ namespace Servy.Core.Native
             uint dwInfoLevel,
             IntPtr lpBuffer,
             int cbBufSize,
-            ref int pcbBytesNeeded);
+            out int pcbBytesNeeded);
 
         /// <summary>Changes the configuration parameters of a service.</summary>
         [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
@@ -468,42 +464,26 @@ namespace Servy.Core.Native
         [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         public static extern bool ChangeServiceConfig2(
               SafeServiceHandle hService,
-              int dwInfoLevel,
+             uint dwInfoLevel,
               ref SERVICE_DESCRIPTION lpInfo);
 
         /// <summary>Changes optional service configuration (Delayed Auto Start).</summary>
         [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         public static extern bool ChangeServiceConfig2(
               SafeServiceHandle hService,
-              int dwInfoLevel,
+             uint dwInfoLevel,
               ref SERVICE_DELAYED_AUTO_START_INFO lpInfo);
 
         /// <summary>Changes optional service configuration using a raw buffer pointer.</summary>
         [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         public static extern bool ChangeServiceConfig2(
               SafeServiceHandle hService,
-              int dwInfoLevel,
+             uint dwInfoLevel,
               IntPtr lpInfo);
 
         /// <summary>Updates the SCM's status information for the calling service.</summary>
         [DllImport("advapi32.dll", SetLastError = true)]
         public static extern bool SetServiceStatus(IntPtr hServiceStatus, ref SERVICE_STATUS lpServiceStatus);
-
-        #endregion
-
-        #region Job Object Functions
-
-        /// <summary>Creates or opens a job object.</summary>
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        public static extern SafeJobObjectHandle CreateJobObject(IntPtr lpJobAttributes, string lpName);
-
-        /// <summary>Sets limits and configuration for a job object.</summary>
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool SetInformationJobObject(SafeJobObjectHandle hJob, JobObjectInfoClass infoClass, IntPtr lpJobObjectInfo, uint cbJobObjectInfoLength);
-
-        /// <summary>Assigns a process to an existing job object.</summary>
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool AssignProcessToJobObject(SafeJobObjectHandle hJob, IntPtr hProcess);
 
         #endregion
 
@@ -514,11 +494,11 @@ namespace Servy.Core.Native
         public static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
 
         /// <summary>Retrieves information about the first process encountered in a snapshot.</summary>
-        [DllImport("kernel32.dll", SetLastError = true)]
+        [DllImport("kernel32.dll", SetLastError = true, EntryPoint = "Process32FirstW", CharSet = CharSet.Unicode)]
         public static extern bool Process32First(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
 
         /// <summary>Retrieves information about the next process recorded in a snapshot.</summary>
-        [DllImport("kernel32.dll", SetLastError = true)]
+        [DllImport("kernel32.dll", SetLastError = true, EntryPoint = "Process32NextW", CharSet = CharSet.Unicode)]
         public static extern bool Process32Next(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
 
         /// <summary>Opens an existing local process object.</summary>
@@ -529,7 +509,7 @@ namespace Servy.Core.Native
         [DllImport("ntdll.dll")]
         public static extern int NtQueryInformationProcess(
             IntPtr processHandle,
-            int processInformationClass,
+            ProcessInfoClass processInformationClass,
             ref PROCESS_BASIC_INFORMATION processInformation,
             uint processInformationLength,
             out uint returnLength);
@@ -540,12 +520,8 @@ namespace Servy.Core.Native
             IntPtr processHandle,
             ProcessInfoClass processInformationClass,
             out PROCESS_BASIC_INFORMATION processInformation,
-            int processInformationLength,
+            uint processInformationLength,
             IntPtr returnLength = default);
-
-        /// <summary>Retrieves the number of milliseconds since the system was started.</summary>
-        [DllImport("kernel32.dll")]
-        public static extern ulong GetTickCount64();
 
         /// <summary>
         /// Parses a Unicode command-line string and returns an array of pointers to the command-line arguments, 
@@ -607,37 +583,18 @@ namespace Servy.Core.Native
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern bool FreeConsole();
 
-        /// <summary>Retrieves a handle to the specified standard device.</summary>
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern IntPtr GetStdHandle(int nStdHandle);
-
-        /// <summary>Sets the handle for the specified standard device.</summary>
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool SetStdHandle(int nStdHandle, IntPtr handle);
-
         #endregion
 
         #region File & Security Functions
 
         /// <summary>Closes an open object handle.</summary>
-        [DllImport("kernel32.dll", CharSet = CharSet.Auto)]
-        public static extern bool CloseHandle(IntPtr handle);
-
-        /// <summary>Creates or opens a file or I/O device.</summary>
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-        public static extern IntPtr CreateFile(
-            string lpFileName,
-            uint dwDesiredAccess,
-            uint dwShareMode,
-            IntPtr lpSecurityAttributes,
-            uint dwCreationDisposition,
-            uint dwFlagsAndAttributes,
-            IntPtr hTemplateFile);
+        public static extern bool CloseHandle(IntPtr handle);
 
         /// <summary>Retrieves the final path for the specified file handle.</summary>
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         public static extern uint GetFinalPathNameByHandle(
-           SafeFileHandle hFile, // Use SafeFileHandle here instead of IntPtr
+           SafeFileHandle hFile,
            [Out] StringBuilder lpszFilePath,
            uint cchFilePath,
            uint dwFlags);

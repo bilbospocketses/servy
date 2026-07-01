@@ -136,6 +136,10 @@ namespace Servy.Core.Helpers
         /// </summary>
         /// <param name="path">The full file path.</param>
         /// <returns>True if the directory exists or was created successfully; false otherwise.</returns>
+        /// <remarks>
+        /// This method acts as a non-throwing variant of <see cref="EnsureDirectoryExists(string?)"/>, catching and 
+        /// logging any filesystem access or authorization violations gracefully.
+        /// </remarks>
         public static bool CreateParentDirectory(string? path)
         {
             if (string.IsNullOrWhiteSpace(path))
@@ -150,12 +154,7 @@ namespace Servy.Core.Helpers
                 {
                     return false;
                 }
-
-                if (!Directory.Exists(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-
+                EnsureDirectoryExists(path);
                 return true;
             }
             catch (Exception ex)
@@ -537,7 +536,7 @@ namespace Servy.Core.Helpers
         /// </summary>
         /// <param name="path">The base file path (e.g., the destination file path).</param>
         /// <returns>
-        /// A string representing a unique temporary path, such as <c>C:\Data\config.xml.a1b2c3d4e5f6g7h8.tmp</c>.
+        /// A string representing a unique temporary path, such as <c>C:\Data\config.xml.a1b2c3d4e5f60789.tmp</c>.
         /// </returns>
         /// <remarks>
         /// <para>
@@ -650,12 +649,6 @@ namespace Servy.Core.Helpers
             // This catches (.CON, .CON.txt, ..PRN, AUX.log, or service.LPT1) uniformly.
             string[] segments = serviceName.Split(new[] { '.' }, StringSplitOptions.RemoveEmptyEntries);
 
-            // If the split resulted in zero segments but the name wasn't empty, it was comprised entirely of dots
-            if (segments.Length == 0 && serviceName.Length > 0)
-            {
-                return (false, Strings.Msg_InvalidServiceName);
-            }
-
             foreach (var segment in segments)
             {
                 // Ensure case-insensitive evaluation against the reserved DOS device names blocklist
@@ -672,7 +665,7 @@ namespace Servy.Core.Helpers
         /// <summary>
         /// Normalizes a file system path by converting it to an absolute path and removing trailing directory separators.
         /// </summary>
-        /// <param name="p">The path string to normalize.</param>
+        /// <param name="path">The path string to normalize.</param>
         /// <returns>
         /// A fully qualified absolute path without trailing separators; 
         /// or <see langword="null"/> if the input is <see langword="null"/>, empty, or consists only of white space.
@@ -682,14 +675,22 @@ namespace Servy.Core.Helpers
         /// based on the current working directory. It then trims any trailing <see cref="Path.DirectorySeparatorChar"/> 
         /// to ensure consistent path comparison and storage in the database.
         /// </remarks>
-        public static string? NormalizePath(string? p)
+        public static string? NormalizePath(string? path)
         {
-            if (string.IsNullOrWhiteSpace(p)) return null;
-            var full = Path.GetFullPath(p);
-            // Don't strip the root \ from a drive root like "C:\\" or "\\server\share\\"
-            if (Path.GetPathRoot(full)?.Equals(full, StringComparison.OrdinalIgnoreCase) == true)
-                return full;
-            return full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (string.IsNullOrWhiteSpace(path)) return null;
+            try
+            {
+                var full = Path.GetFullPath(path);
+                // Don't strip the root \ from a drive root like "C:\\" or "\\server\share\\"
+                if (Path.GetPathRoot(full)?.Equals(full, StringComparison.OrdinalIgnoreCase) == true)
+                    return full;
+                return full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch (Exception ex)
+            {
+                Logger.Debug($"NormalizePath: rejected '{path}': {ex.Message}");
+                return null;
+            }
         }
 
         /// <summary>

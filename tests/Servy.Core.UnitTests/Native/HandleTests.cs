@@ -1,8 +1,5 @@
 ﻿using Servy.Core.Native;
-using System;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
-using Xunit;
 using static Servy.Core.Native.NativeMethods;
 
 namespace Servy.Core.UnitTests.Native
@@ -38,8 +35,7 @@ namespace Servy.Core.UnitTests.Native
         public void OpenProcess_ShouldReturnInvalidHandle_WhenProcessDoesNotExist()
         {
             // Arrange
-            // PID 0 is the System Idle Process, but kernel32 usually returns an 
-            // error or NULL if you try to open a non-existent or inaccessible high-range PID.
+            // A high, unused PID (999999) is very unlikely to map to a running process, so kernel32 returns NULL and the handle is invalid.
             int nonExistentPid = 999999;
 
             // Act

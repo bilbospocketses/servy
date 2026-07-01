@@ -10,7 +10,6 @@ using Servy.Resources;
 using Servy.Services;
 using Servy.UI.Commands;
 using Servy.UI.Services;
-using Servy.ViewModels.Items;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
@@ -51,7 +50,7 @@ namespace Servy.ViewModels
         /// Raises the <see cref="PropertyChanged"/> event for the specified property name.
         /// </summary>
         /// <param name="propertyName">Name of the property that changed.</param>
-        private void OnPropertyChanged([CallerMemberName] string? propertyName = "")
+        private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
@@ -156,27 +155,27 @@ namespace Servy.ViewModels
         }
 
         /// <summary>
-        /// Gets the list of available startup types for services.
+        /// Gets the list of available startup types for services, wrapped in the centralized generic display adapter.
         /// </summary>
-        public List<StartupTypeItem> StartupTypes { get; } = new List<StartupTypeItem>
+        public List<EnumDisplayItem<ServiceStartType>> StartupTypes { get; } = new List<EnumDisplayItem<ServiceStartType>>
         {
-            new StartupTypeItem { StartupType = ServiceStartType.Automatic, DisplayName = Strings.StartupType_Automatic },
-            new StartupTypeItem { StartupType = ServiceStartType.AutomaticDelayedStart, DisplayName = Strings.StartupType_AutomaticDelayedStart },
-            new StartupTypeItem { StartupType = ServiceStartType.Manual, DisplayName = Strings.StartupType_Manual },
-            new StartupTypeItem { StartupType = ServiceStartType.Disabled, DisplayName = Strings.StartupType_Disabled },
+            new EnumDisplayItem<ServiceStartType> { Value = ServiceStartType.Automatic, DisplayName = Strings.StartupType_Automatic },
+            new EnumDisplayItem<ServiceStartType> { Value = ServiceStartType.AutomaticDelayedStart, DisplayName = Strings.StartupType_AutomaticDelayedStart },
+            new EnumDisplayItem<ServiceStartType> { Value = ServiceStartType.Manual, DisplayName = Strings.StartupType_Manual },
+            new EnumDisplayItem<ServiceStartType> { Value = ServiceStartType.Disabled, DisplayName = Strings.StartupType_Disabled },
         };
 
         /// <summary>
-        /// Gets the list of available process priority options.
+        /// Gets the list of available process priority options, wrapped in the centralized generic display adapter.
         /// </summary>
-        public List<ProcessPriorityItem> ProcessPriorities { get; } = new List<ProcessPriorityItem>
+        public List<EnumDisplayItem<ProcessPriority>> ProcessPriorities { get; } = new List<EnumDisplayItem<ProcessPriority>>
         {
-            new ProcessPriorityItem { Priority = ProcessPriority.Idle, DisplayName = Strings.ProcessPriority_Idle },
-            new ProcessPriorityItem { Priority = ProcessPriority.BelowNormal, DisplayName = Strings.ProcessPriority_BelowNormal },
-            new ProcessPriorityItem { Priority = ProcessPriority.Normal, DisplayName = Strings.ProcessPriority_Normal },
-            new ProcessPriorityItem { Priority = ProcessPriority.AboveNormal, DisplayName = Strings.ProcessPriority_AboveNormal },
-            new ProcessPriorityItem { Priority = ProcessPriority.High, DisplayName = Strings.ProcessPriority_High },
-            new ProcessPriorityItem { Priority = ProcessPriority.RealTime, DisplayName = Strings.ProcessPriority_RealTime },
+            new EnumDisplayItem<ProcessPriority> { Value = ProcessPriority.Idle, DisplayName = Strings.ProcessPriority_Idle },
+            new EnumDisplayItem<ProcessPriority> { Value = ProcessPriority.BelowNormal, DisplayName = Strings.ProcessPriority_BelowNormal },
+            new EnumDisplayItem<ProcessPriority> { Value = ProcessPriority.Normal, DisplayName = Strings.ProcessPriority_Normal },
+            new EnumDisplayItem<ProcessPriority> { Value = ProcessPriority.AboveNormal, DisplayName = Strings.ProcessPriority_AboveNormal },
+            new EnumDisplayItem<ProcessPriority> { Value = ProcessPriority.High, DisplayName = Strings.ProcessPriority_High },
+            new EnumDisplayItem<ProcessPriority> { Value = ProcessPriority.RealTime, DisplayName = Strings.ProcessPriority_RealTime },
         };
 
         /// <summary>
@@ -231,7 +230,7 @@ namespace Servy.ViewModels
         }
 
         /// <summary>
-        /// Gets or sets the log rotation size as a string? (in MB).
+        /// Gets or sets the log rotation size as a string (in MB).
         /// </summary>
         public string? RotationSize
         {
@@ -269,14 +268,14 @@ namespace Servy.ViewModels
         }
 
         /// <summary>
-        /// Gets the list of available date rotation types for services.
+        /// Gets the list of available date rotation types for services
         /// </summary>
-        public List<DateRotationTypeItem> DateRotationTypes { get; } = new List<DateRotationTypeItem>
+        public List<EnumDisplayItem<DateRotationType>> DateRotationTypes { get; } = new List<EnumDisplayItem<DateRotationType>>
         {
-            new DateRotationTypeItem { DateRotationType = DateRotationType.Daily, DisplayName = Strings.DateRotationType_Daily},
-            new DateRotationTypeItem { DateRotationType = DateRotationType.Weekly, DisplayName = Strings.DateRotationType_Weekly},
-            new DateRotationTypeItem { DateRotationType = DateRotationType.Monthly, DisplayName = Strings.DateRotationType_Monthly },
-            new DateRotationTypeItem { DateRotationType = DateRotationType.None, DisplayName = Strings.DateRotationType_None},
+            new EnumDisplayItem<DateRotationType> { Value = DateRotationType.Daily, DisplayName = Strings.DateRotationType_Daily },
+            new EnumDisplayItem<DateRotationType> { Value = DateRotationType.Weekly, DisplayName = Strings.DateRotationType_Weekly },
+            new EnumDisplayItem<DateRotationType> { Value = DateRotationType.Monthly, DisplayName = Strings.DateRotationType_Monthly },
+            new EnumDisplayItem<DateRotationType> { Value = DateRotationType.None, DisplayName = Strings.DateRotationType_None },
         };
 
         /// <summary>
@@ -352,12 +351,12 @@ namespace Servy.ViewModels
         /// <summary>
         /// Gets the list of available recovery actions.
         /// </summary>
-        public List<RecoveryActionItem> RecoveryActions { get; } = new List<RecoveryActionItem>
+        public List<EnumDisplayItem<RecoveryAction>> RecoveryActions { get; } = new List<EnumDisplayItem<RecoveryAction>>
         {
-            new RecoveryActionItem { RecoveryAction= RecoveryAction.None, DisplayName = Strings.RecoveryAction_None },
-            new RecoveryActionItem { RecoveryAction= RecoveryAction.RestartService, DisplayName = Strings.RecoveryAction_RestartService },
-            new RecoveryActionItem { RecoveryAction= RecoveryAction.RestartProcess, DisplayName = Strings.RecoveryAction_RestartProcess },
-            new RecoveryActionItem { RecoveryAction= RecoveryAction.RestartComputer, DisplayName = Strings.RecoveryAction_RestartComputer },
+            new EnumDisplayItem<RecoveryAction> { Value = RecoveryAction.None, DisplayName = Strings.RecoveryAction_None },
+            new EnumDisplayItem<RecoveryAction> { Value = RecoveryAction.RestartService, DisplayName = Strings.RecoveryAction_RestartService },
+            new EnumDisplayItem<RecoveryAction> { Value = RecoveryAction.RestartProcess, DisplayName = Strings.RecoveryAction_RestartProcess },
+            new EnumDisplayItem<RecoveryAction> { Value = RecoveryAction.RestartComputer, DisplayName = Strings.RecoveryAction_RestartComputer },
         };
 
         /// <summary>
@@ -840,18 +839,18 @@ namespace Servy.ViewModels
             BrowseStdoutPathCommand = new RelayCommand<object>(_ => BrowseStdoutPath());
             BrowseStderrPathCommand = new RelayCommand<object>(_ => BrowseStderrPath());
 
-            InstallCommand = new AsyncCommand(InstallService, _ => !IsBusy, name: nameof(InstallCommand));
-            UninstallCommand = new AsyncCommand(UninstallService, _ => !IsBusy, name: nameof(UninstallCommand));
-            StartCommand = new AsyncCommand(StartService, _ => !IsBusy, name: nameof(StartCommand));
-            StopCommand = new AsyncCommand(StopService, _ => !IsBusy, name: nameof(StopCommand));
-            RestartCommand = new AsyncCommand(RestartService, _ => !IsBusy, name: nameof(RestartCommand));
+            InstallCommand = new AsyncCommand(InstallServiceAsync, _ => !IsBusy, name: nameof(InstallCommand));
+            UninstallCommand = new AsyncCommand(UninstallServiceAsync, _ => !IsBusy, name: nameof(UninstallCommand));
+            StartCommand = new AsyncCommand(StartServiceAsync, _ => !IsBusy, name: nameof(StartCommand));
+            StopCommand = new AsyncCommand(StopServiceAsync, _ => !IsBusy, name: nameof(StopCommand));
+            RestartCommand = new AsyncCommand(RestartServiceAsync, _ => !IsBusy, name: nameof(RestartCommand));
 
-            ManagerCommand = new AsyncCommand(OpenManager, name: nameof(ManagerCommand));
+            ManagerCommand = new AsyncCommand(OpenManagerAsync, name: nameof(ManagerCommand));
 
-            ExportXmlCommand = new AsyncCommand(ExportXmlConfig, _ => !IsBusy, name: nameof(ExportXmlCommand));
-            ExportJsonCommand = new AsyncCommand(ExportJsonConfig, _ => !IsBusy, name: nameof(ExportJsonCommand));
-            ImportXmlCommand = new AsyncCommand(ImportXmlConfig, _ => !IsBusy, name: nameof(ImportXmlCommand));
-            ImportJsonCommand = new AsyncCommand(ImportJsonConfig, _ => !IsBusy, name: nameof(ImportJsonCommand));
+            ExportXmlCommand = new AsyncCommand(ExportXmlConfigAsync, _ => !IsBusy, name: nameof(ExportXmlCommand));
+            ExportJsonCommand = new AsyncCommand(ExportJsonConfigAsync, _ => !IsBusy, name: nameof(ExportJsonCommand));
+            ImportXmlCommand = new AsyncCommand(ImportXmlConfigAsync, _ => !IsBusy, name: nameof(ImportXmlCommand));
+            ImportJsonCommand = new AsyncCommand(ImportJsonConfigAsync, _ => !IsBusy, name: nameof(ImportJsonCommand));
 
             BrowseFailureProgramPathCommand = new RelayCommand<object>(_ => BrowseFailureProgramPath());
             BrowseFailureProgramStartupDirectoryCommand = new RelayCommand<object>(_ => BrowseFailureProgramStartupDirectory());
@@ -870,11 +869,11 @@ namespace Servy.ViewModels
             BrowsePostStopProcessPathCommand = new RelayCommand<object>(_ => BrowsePostStopProcessPath());
             BrowsePostStopStartupDirectoryCommand = new RelayCommand<object>(_ => BrowsePostStopStartupDirectory());
 
-            OpenDocumentationCommand = new AsyncCommand(OpenDocumentation, name: nameof(OpenDocumentationCommand));
+            OpenDocumentationCommand = new AsyncCommand(OpenDocumentationAsync, name: nameof(OpenDocumentationCommand));
             CheckUpdatesCommand = new AsyncCommand(CheckUpdatesAsync, name: nameof(CheckUpdatesCommand));
-            OpenAboutDialogCommand = new AsyncCommand(OpenAboutDialog, name: nameof(OpenAboutDialogCommand));
+            OpenAboutDialogCommand = new AsyncCommand(OpenAboutDialogAsync, name: nameof(OpenAboutDialogCommand));
 
-            ClearFormCommand = new AsyncCommand(ClearForm);
+            ClearFormCommand = new AsyncCommand(ClearFormAsync, _ => !IsBusy, name: nameof(ClearFormCommand));
 
             IsManagerAppAvailable = _appConfig.IsManagerAppAvailable;
             _appConfig.PropertyChanged += AppConfig_PropertyChanged;
@@ -892,8 +891,7 @@ namespace Servy.ViewModels
             new DesignTimeAppConfig()
             )
         {
-            // The body is now intentionally empty. 
-            // All dependencies are safely injected via the chained call, bypassing the ArgumentNullException traps.
+            // Intentionally empty: the chained constructor supplies design-time stubs for all dependencies.
         }
 
         #endregion
@@ -903,11 +901,11 @@ namespace Servy.ViewModels
         /// <summary>
         /// PropertyChanged event handler to capture dynamically updated settings from the application.
         /// </summary>
-        private void AppConfig_PropertyChanged(object? sender, PropertyChangedEventArgs? e)
+        private void AppConfig_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e?.PropertyName == nameof(IAppConfiguration.IsManagerAppAvailable))
+            if (e.PropertyName == nameof(IAppConfiguration.IsManagerAppAvailable) && sender is IAppConfiguration cfg)
             {
-                IsManagerAppAvailable = ((IAppConfiguration)sender!).IsManagerAppAvailable;
+                IsManagerAppAvailable = cfg.IsManagerAppAvailable;
             }
         }
 
@@ -1010,7 +1008,7 @@ namespace Servy.ViewModels
         /// Executes a file or folder dialog and assigns the resulting path to a property if the selection is valid.
         /// </summary>
         /// <param name="dialogAction">A function that invokes the specific <see cref="IFileDialogService"/> method (e.g., OpenExecutable or OpenFolder).</param>
-        /// <param name="propertySetter">An action that assigns the returned string? to the target ViewModel property.</param>
+        /// <param name="propertySetter">An action that assigns the returned string to the target ViewModel property.</param>
         /// <remarks>
         /// This helper encapsulates the common pattern of checking for null or empty strings 
         /// before updating configuration properties, ensuring that user cancellation of a dialog 
@@ -1117,7 +1115,7 @@ namespace Servy.ViewModels
         /// <summary>
         /// Calls <see cref="IServiceCommands.InstallService"/> with the current property values.
         /// </summary>
-        private async Task InstallService(object? parameter)
+        private async Task InstallServiceAsync(object? parameter)
         {
             try
             {
@@ -1133,7 +1131,7 @@ namespace Servy.ViewModels
         /// <summary>
         /// Calls <see cref="IServiceCommands.UninstallService"/> for the current <see cref="ServiceName"/>.
         /// </summary>
-        private async Task UninstallService(object? parameter)
+        private async Task UninstallServiceAsync(object? parameter)
         {
             try
             {
@@ -1149,7 +1147,7 @@ namespace Servy.ViewModels
         /// <summary>
         /// Calls <see cref="IServiceCommands.StartService"/> for the current <see cref="ServiceName"/>.
         /// </summary>
-        private async Task StartService(object? parameter)
+        private async Task StartServiceAsync(object? parameter)
         {
             try
             {
@@ -1165,7 +1163,7 @@ namespace Servy.ViewModels
         /// <summary>
         /// Calls <see cref="IServiceCommands.StopService"/> for the current <see cref="ServiceName"/>.
         /// </summary>
-        private async Task StopService(object? parameter)
+        private async Task StopServiceAsync(object? parameter)
         {
             try
             {
@@ -1181,7 +1179,7 @@ namespace Servy.ViewModels
         /// <summary>
         /// Calls <see cref="IServiceCommands.RestartService"/> for the current <see cref="ServiceName"/>.
         /// </summary>
-        private async Task RestartService(object? parameter)
+        private async Task RestartServiceAsync(object? parameter)
         {
             try
             {
@@ -1195,9 +1193,9 @@ namespace Servy.ViewModels
         }
 
         /// <summary>
-        /// Calls <see cref="IServiceCommands.OpenManager"/> for the current <see cref="ServiceName"/>.
+        /// Calls <see cref="IServiceCommands.OpenManager"/> to open the Servy Manager application.
         /// </summary>
-        private async Task OpenManager(object? parameter)
+        private async Task OpenManagerAsync(object? parameter)
         {
             await ServiceCommands.OpenManager();
         }
@@ -1209,10 +1207,10 @@ namespace Servy.ViewModels
         /// <summary>
         /// Clears all form fields and resets to default values.
         /// </summary>
-        private async Task ClearForm(object? parameter)
+        private async Task ClearFormAsync(object? parameter)
         {
             // Ask for confirmation before clearing everything
-            bool confirm = await _messageBoxService.ShowConfirmAsync(Strings.Confirm_ClearAll, AppConfig.Caption);
+            bool confirm = await _messageBoxService.ShowConfirmAsync(Strings.Confirm_ClearAll, UiAppConfig.Caption);
 
             if (!confirm)
                 return;
@@ -1228,7 +1226,7 @@ namespace Servy.ViewModels
         /// <summary>
         /// Exports the current service configuration to an XML file selected by the user.
         /// </summary>
-        private async Task ExportXmlConfig(object? parameter)
+        private async Task ExportXmlConfigAsync(object? parameter)
         {
             try
             {
@@ -1244,7 +1242,7 @@ namespace Servy.ViewModels
         /// <summary>
         /// Exports the current service configuration to a JSON file selected by the user.
         /// </summary>
-        private async Task ExportJsonConfig(object? parameter)
+        private async Task ExportJsonConfigAsync(object? parameter)
         {
             try
             {
@@ -1263,7 +1261,7 @@ namespace Servy.ViewModels
         /// and maps the values to the main view model.
         /// Shows an error message if the XML is invalid, deserialization fails, or any exception occurs.
         /// </summary>
-        private async Task ImportXmlConfig(object? parameter)
+        private async Task ImportXmlConfigAsync(object? parameter)
         {
             try
             {
@@ -1282,7 +1280,7 @@ namespace Servy.ViewModels
         /// and maps the values to the main view model.
         /// Shows an error message if the JSON is invalid, deserialization fails, or any exception occurs.
         /// </summary>
-        private async Task ImportJsonConfig(object? parameter)
+        private async Task ImportJsonConfigAsync(object? parameter)
         {
             try
             {
@@ -1302,9 +1300,9 @@ namespace Servy.ViewModels
         /// <summary>
         /// Opens the Servy documentation page in the default browser.
         /// </summary>
-        private async Task OpenDocumentation(object? parameter)
+        private async Task OpenDocumentationAsync(object? parameter)
         {
-            await _helpService.OpenDocumentation(AppConfig.Caption);
+            await _helpService.OpenDocumentationAsync(UiAppConfig.Caption);
         }
 
         /// <summary>
@@ -1313,20 +1311,20 @@ namespace Servy.ViewModels
         /// </summary>
         private async Task CheckUpdatesAsync(object? parameter)
         {
-            await _helpService.CheckUpdates(AppConfig.Caption);
+            await _helpService.CheckUpdatesAsync(UiAppConfig.Caption);
         }
 
         /// <summary>
         /// Displays the "About Servy" dialog with version and copyright information.
         /// </summary>
-        private async Task OpenAboutDialog(object? parameter)
+        private async Task OpenAboutDialogAsync(object? parameter)
         {
-            await _helpService.OpenAboutDialog(
+            await _helpService.OpenAboutDialogAsync(
                 string.Format(Strings.Text_About,
                     Core.Config.AppConfig.Version,
                     Helper.GetBuiltWithFramework(),
                     DateTime.Now.Year),
-                AppConfig.Caption);
+                UiAppConfig.Caption);
         }
 
         #endregion
@@ -1355,7 +1353,7 @@ namespace Servy.ViewModels
             catch (Exception ex)
             {
                 Logger.Error($"Error loading configuration for service '{serviceName}'", ex);
-                await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, AppConfig.Caption);
+                await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, UiAppConfig.Caption);
             }
         }
 
@@ -1374,10 +1372,10 @@ namespace Servy.ViewModels
         /// </remarks>
         public void BindServiceDtoToModel(ServiceDto dto)
         {
-            ServiceName = dto.Name;
+            ServiceName = dto.Name ?? string.Empty;
             ServiceDisplayName = dto.DisplayName ?? string.Empty;
             ServiceDescription = dto.Description ?? string.Empty;
-            ProcessPath = dto.ExecutablePath;
+            ProcessPath = dto.ExecutablePath ?? string.Empty;
             StartupDirectory = dto.StartupDirectory ?? string.Empty;
             ProcessParameters = dto.Parameters ?? string.Empty;
             SelectedStartupType = dto.StartupType == null ? DefaultStartupType : (ServiceStartType)dto.StartupType;
@@ -1451,10 +1449,10 @@ namespace Servy.ViewModels
         {
             return new ServiceDto
             {
-                Name = ServiceName ?? string.Empty,
-                DisplayName = ServiceDisplayName ?? string.Empty,
+                Name = ServiceName!,
+                DisplayName = ServiceDisplayName,
                 Description = ServiceDescription,
-                ExecutablePath = ProcessPath ?? string.Empty,
+                ExecutablePath = ProcessPath!,
                 StartupDirectory = StartupDirectory,
                 Parameters = ProcessParameters,
                 StartupType = (int)SelectedStartupType,

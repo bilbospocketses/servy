@@ -18,7 +18,7 @@ namespace Servy.UI.UnitTests.Converters
         [Theory]
         [InlineData(true, false)]
         [InlineData(false, true)]
-        public void Convert_WhenValueIsBool_ReturnsInvertedValue(bool input, bool expected)
+        public void Convert_BoolValue_ReturnsInvertedValue(bool input, bool expected)
         {
             // Act
             var result = _converter.Convert(input, typeof(bool), null!, CultureInfo.InvariantCulture);
@@ -28,16 +28,16 @@ namespace Servy.UI.UnitTests.Converters
         }
 
         [Theory]
-        [InlineData(null!)]
+        [InlineData(null)]
         [InlineData("string")]
         [InlineData(123)]
-        public void Convert_WhenValueIsNotBool_ReturnsTrue(object? input)
+        public void Convert_NonBool_ReturnsBindingDoNothing(object? input)
         {
             // Act
             var result = _converter.Convert(input!, typeof(bool), null!, CultureInfo.InvariantCulture);
 
             // Assert
-            Assert.True((bool)result);
+            Assert.Equal(Binding.DoNothing, result);
         }
 
         #endregion
@@ -47,7 +47,7 @@ namespace Servy.UI.UnitTests.Converters
         [Theory]
         [InlineData(true, false)]
         [InlineData(false, true)]
-        public void ConvertBack_WhenValueIsBool_ReturnsInvertedValue(bool input, bool expected)
+        public void ConvertBack_Bool_ReturnsInvertedValue(bool input, bool expected)
         {
             // Act
             var result = _converter.ConvertBack(input, typeof(bool), null!, CultureInfo.InvariantCulture);
@@ -59,7 +59,7 @@ namespace Servy.UI.UnitTests.Converters
         [Theory]
         [InlineData(null!)]
         [InlineData("not a bool")]
-        public void ConvertBack_WhenValueIsNotBool_ReturnsDoNothing(object? input)
+        public void ConvertBack_NonBool_ReturnsDoNothing(object? input)
         {
             // Act
             var result = _converter.ConvertBack(input!, typeof(bool), null!, CultureInfo.InvariantCulture);

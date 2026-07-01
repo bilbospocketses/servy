@@ -1,4 +1,5 @@
-﻿using Servy.Core.Data;
+﻿using Servy.Core.Config;
+using Servy.Core.Data;
 using Servy.Core.Helpers;
 using Servy.Manager.Config;
 using Servy.Manager.Design;
@@ -26,6 +27,15 @@ namespace Servy.Manager.ViewModels
         /// </summary>
         private const int PerformanceHistoryCapacity = 101;
 
+        /// <summary>
+        /// The scaling headroom multiplier applied above the observed peak memory footprint.
+        /// </summary>
+        /// <remarks>
+        /// This factor injects 20% vertical breathing room above the maximum data coordinate value 
+        /// in the chart's current window frame, preventing graph clipping at the top boundary.
+        /// </remarks>
+        private const double RamScaleHeadroom = 1.2;
+
         #endregion
 
         #region Fields
@@ -33,7 +43,6 @@ namespace Servy.Manager.ViewModels
         private readonly IServiceRepository _serviceRepository;
         private readonly double _ramDisplayMax = 10; // Minimum RAM scale (MB) to avoid flat graphs for small processes
 
-        private bool _hadSelectedService;
         private readonly IAppConfiguration _appConfig;
         private readonly IProcessHelper _processHelper;
 
@@ -70,9 +79,9 @@ namespace Servy.Manager.ViewModels
 
                 CopyPidCommand?.RaiseCanExecuteChanged();
 
-                ResetGraphs(true);
+                ResetGraphs();
 
-                StopMonitoring(clearView: false); // We have already reset our own view state above; skip the base class OnMonitoringStopped callback.
+                StopMonitoring();
                 StartMonitoring();
             }
         }
@@ -117,10 +126,21 @@ namespace Servy.Manager.ViewModels
 
         #region Properties - UI State & Search
 
+        /// <summary>
+        /// Gets the fixed width of the performance graph drawing surface in device-independent pixels.
+        /// </summary>
         public double GraphWidth { get; } = 400;
+
+        /// <summary>
+        /// Gets the fixed height of the performance graph drawing surface in device-independent pixels.
+        /// </summary>
         public double GraphHeight { get; } = 200;
 
         private string _cpuUsage = UiConstants.NotAvailable;
+
+        /// <summary>
+        /// Gets or sets the formatted, localized CPU usage percentage string displayed in the view template.
+        /// </summary>
         public string CpuUsage
         {
             get => _cpuUsage;
@@ -128,6 +148,10 @@ namespace Servy.Manager.ViewModels
         }
 
         private string _ramUsage = UiConstants.NotAvailable;
+
+        /// <summary>
+        /// Gets or sets the formatted, localized RAM usage metrics string (e.g., "45.2 MB") displayed in the view template.
+        /// </summary>
         public string RamUsage
         {
             get => _ramUsage;
@@ -189,28 +213,19 @@ namespace Servy.Manager.ViewModels
         /// <inheritdoc/>
         protected override ServiceItemBase CreateServiceItem(Service? service)
         {
-            if (service == null) throw new ArgumentNullException(nameof(service));
-            return new PerformanceService { Name = service.Name, Pid = service.Pid };
+            return new PerformanceService { Name = service?.Name, Pid = service?.Pid };
         }
 
         /// <inheritdoc/>
-        protected override async Task OnTickAsync()
+        protected override void ResetMonitoringState()
         {
-            var token = GetCurrentMonitoringToken();
+            ResetGraphs();
+        }
 
-            var currentSelection = SelectedService;
-            if (currentSelection == null)
-            {
-                if (_hadSelectedService)
-                {
-                    ResetGraphs(true);
-                    _hadSelectedService = false;
-                    CopyPidCommand?.RaiseCanExecuteChanged();
-                }
-                return;
-            }
-            _hadSelectedService = true;
-
+        /// <inheritdoc/>
+        protected override async Task ApplyTickAsync(ServiceItemBase selection, CancellationToken token)
+        {
+            var currentSelection = (PerformanceService)selection;
             var currentPid = await _serviceRepository.GetServicePidAsync(currentSelection.Name, token);
 
             // Drop this tick if the user switched services while we were awaiting the DB call.
@@ -218,16 +233,19 @@ namespace Servy.Manager.ViewModels
 
             if (!currentPid.HasValue)
             {
-                ResetGraphs(true);
-                currentSelection.Pid = null;
-                CopyPidCommand?.RaiseCanExecuteChanged();
+                if (currentSelection.Pid != null)      // only act on the running -> stopped transition
+                {
+                    currentSelection.Pid = null;
+                    ResetGraphs();
+                    CopyPidCommand?.RaiseCanExecuteChanged();
+                }
                 return;
             }
 
             if (currentSelection.Pid != currentPid)
             {
                 currentSelection.Pid = currentPid;
-                ResetGraphs(true);
+                ResetGraphs();
                 CopyPidCommand?.RaiseCanExecuteChanged();
             }
 
@@ -243,7 +261,7 @@ namespace Servy.Manager.ViewModels
             if (token.IsCancellationRequested) return;
             if (!ReferenceEquals(currentSelection, _selectedService)) return;
 
-            double rawRamMb = processMetrics.RamUsage / 1024d / 1024d;
+            double rawRamMb = processMetrics.RamUsage / (double)AppConfig.BytesInMegabyte;
 
             CpuUsage = _processHelper.FormatCpuUsage(processMetrics.CpuUsage);
             RamUsage = _processHelper.FormatRamUsage(processMetrics.RamUsage);
@@ -261,15 +279,12 @@ namespace Servy.Manager.ViewModels
         /// </summary>
         /// <remarks>Call this method to clear existing CPU and RAM usage data and prepare the graphs for
         /// fresh input. This is typically used when reinitializing the display or after a data source change.</remarks>
-        private void ResetGraphs(bool resetLabels)
+        private void ResetGraphs()
         {
             // 1. Reset display values
-            if (resetLabels)
-            {
-                Pid = UiConstants.NotAvailable;
-                CpuUsage = UiConstants.NotAvailable;
-                RamUsage = UiConstants.NotAvailable;
-            }
+            Pid = UiConstants.NotAvailable;
+            CpuUsage = UiConstants.NotAvailable;
+            RamUsage = UiConstants.NotAvailable;
 
             // 2. Clear and SEED the data history with PerformanceHistoryCapacity zeros
             // This ensures the graph line spans the whole width immediately
@@ -301,7 +316,7 @@ namespace Servy.Manager.ViewModels
             }
 
             double currentMax = 0;
-            if (!isCpu && valueHistory.Count > 0)
+            if (valueHistory.Count > 0)
             {
                 // A foreach over a Queue<T> uses a struct enumerator (0 bytes allocated).
                 // This is microscopically fast for 100 items and guarantees perfect accuracy.
@@ -313,8 +328,11 @@ namespace Servy.Manager.ViewModels
                     }
                 }
             }
-            // CPU is always 0-100%, RAM scale is dynamic based on usage
-            double displayMax = isCpu ? 100.0 : Math.Max(currentMax * 1.2, _ramDisplayMax);
+
+            // Scale dynamically if multi-process trees breach normalized boundaries, maintaining rational floor metrics
+            double displayMax = isCpu
+                ? Math.Max(currentMax * RamScaleHeadroom, 100.0)
+                : Math.Max(currentMax * RamScaleHeadroom, _ramDisplayMax);
 
             var lineBuffer = isCpu ? _cpuBuffer : _ramBuffer;
             var fillBuffer = isCpu ? _cpuFillBuffer : _ramFillBuffer;
@@ -360,28 +378,5 @@ namespace Servy.Manager.ViewModels
         }
 
         #endregion
-
-        #region Public Methods - Control
-
-        /// <summary>
-        /// Handles the specific logic for clearing graph visualizations when 
-        /// monitoring is stopped with the clearView flag set to true.
-        /// </summary>
-        protected override void OnMonitoringStopped(bool clearView)
-        {
-            if (!clearView) return;
-
-            // Clear graph collections to reset the UI visualizations
-            CpuPointCollection = new PointCollection();
-            CpuFillPoints = new PointCollection();
-            RamPointCollection = new PointCollection();
-            RamFillPoints = new PointCollection();
-
-            _cpuValues.Clear();
-            _ramValues.Clear();
-        }
-
-        #endregion
-
     }
 }

@@ -10,9 +10,8 @@
 
 namespace Servy.Resources {
     using System;
-    using System.Diagnostics.CodeAnalysis;
-
-
+    
+    
     /// <summary>
     ///   Une classe de ressource fortement typée destinée, entre autres, à la consultation des chaînes localisées.
     /// </summary>
@@ -23,7 +22,6 @@ namespace Servy.Resources {
     [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "18.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
-    [ExcludeFromCodeCoverage]
     public class Strings {
         
         private static global::System.Resources.ResourceManager resourceMan;
@@ -216,7 +214,7 @@ namespace Servy.Resources {
         }
         
         /// <summary>
-        ///   Recherche une chaîne localisée semblable à Enter variables in the format varName=varValue, one per line or separated by semicolons (;). Use \= to escape &apos;=&apos;, \&quot; to escape &apos;&quot;&apos;, \; to escape &apos;;&apos; and \\ to escape &apos;\&apos;. Supports environment variable expansion, example: VAR1=%ProgramData%\MyApp; VAR2=%VAR1%\bin.
+        ///   Recherche une chaîne localisée semblable à Enter variables in the format varName=varValue, one per line or separated by semicolons (;). Use \= to escape &apos;=&apos;, \&quot; to escape &apos;&quot;&apos;, \; to escape &apos;;&apos;, \\ to escape &apos;\&apos;, and %% to escape &apos;%&apos; (collapses to a single &apos;%&apos;). Supports environment variable expansion, example: VAR1=%ProgramData%\MyApp; VAR2=%VAR1%\bin.
         /// </summary>
         public static string Info_EnvironmentVariables {
             get {
@@ -777,9 +775,9 @@ namespace Servy.Resources {
         /// <summary>
         ///   Recherche une chaîne localisée semblable à Megabytes (MB).
         /// </summary>
-        public static string Label_RotationSizeUnity {
+        public static string Label_RotationSizeUnit {
             get {
-                return ResourceManager.GetString("Label_RotationSizeUnity", resourceCulture);
+                return ResourceManager.GetString("Label_RotationSizeUnit", resourceCulture);
             }
         }
         
@@ -1032,15 +1030,6 @@ namespace Servy.Resources {
         public static string Msg_ArgumentsLengthReached {
             get {
                 return ResourceManager.GetString("Msg_ArgumentsLengthReached", resourceCulture);
-            }
-        }
-        
-        /// <summary>
-        ///   Recherche une chaîne localisée semblable à Configuration file exceeds maximum size (10 MB)..
-        /// </summary>
-        public static string Msg_ConfigSizeLimitReached {
-            get {
-                return ResourceManager.GetString("Msg_ConfigSizeLimitReached", resourceCulture);
             }
         }
         

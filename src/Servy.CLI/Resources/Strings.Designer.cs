@@ -10,9 +10,8 @@
 
 namespace Servy.CLI.Resources {
     using System;
-    using System.Diagnostics.CodeAnalysis;
-
-
+    
+    
     /// <summary>
     ///   Une classe de ressource fortement typée destinée, entre autres, à la consultation des chaînes localisées.
     /// </summary>
@@ -23,7 +22,6 @@ namespace Servy.CLI.Resources {
     [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "18.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
-    [ExcludeFromCodeCoverage]
     public class Strings {
         
         private static global::System.Resources.ResourceManager resourceMan;
@@ -90,11 +88,20 @@ namespace Servy.CLI.Resources {
         }
         
         /// <summary>
-        ///   Recherche une chaîne localisée semblable à Configuration file &apos;{0}&apos; exceeds maximum size (10 MB)..
+        ///   Recherche une chaîne localisée semblable à export configuration for service &apos;{0}&apos;.
         /// </summary>
-        public static string Msg_ConfigSizeLimitReached {
+        public static string Msg_ExportServiceAction {
             get {
-                return ResourceManager.GetString("Msg_ConfigSizeLimitReached", resourceCulture);
+                return ResourceManager.GetString("Msg_ExportServiceAction", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à Ensure the service exists in the database and you have write permissions to the destination path..
+        /// </summary>
+        public static string Msg_ExportServiceSuggestion {
+            get {
+                return ResourceManager.GetString("Msg_ExportServiceSuggestion", resourceCulture);
             }
         }
         
@@ -104,15 +111,6 @@ namespace Servy.CLI.Resources {
         public static string Msg_ExportSuccess {
             get {
                 return ResourceManager.GetString("Msg_ExportSuccess", resourceCulture);
-            }
-        }
-        
-        /// <summary>
-        ///   Recherche une chaîne localisée semblable à This field is required..
-        /// </summary>
-        public static string Msg_FieldRequired {
-            get {
-                return ResourceManager.GetString("Msg_FieldRequired", resourceCulture);
             }
         }
         
@@ -171,11 +169,47 @@ namespace Servy.CLI.Resources {
         }
         
         /// <summary>
+        ///   Recherche une chaîne localisée semblable à import configuration from &apos;{0}&apos;.
+        /// </summary>
+        public static string Msg_ImportServiceAction {
+            get {
+                return ResourceManager.GetString("Msg_ImportServiceAction", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à Check that the file path is correct, the file format is valid JSON or XML, and you have read permissions..
+        /// </summary>
+        public static string Msg_ImportServiceSuggestion {
+            get {
+                return ResourceManager.GetString("Msg_ImportServiceSuggestion", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Recherche une chaîne localisée semblable à {0} configuration imported successfully..
         /// </summary>
         public static string Msg_ImportSuccessNoInstall {
             get {
                 return ResourceManager.GetString("Msg_ImportSuccessNoInstall", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à install service &apos;{0}&apos;.
+        /// </summary>
+        public static string Msg_InstallServiceAction {
+            get {
+                return ResourceManager.GetString("Msg_InstallServiceAction", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à Ensure the executable path is correct, the service name is not already in use, and you are running with Administrator privileges..
+        /// </summary>
+        public static string Msg_InstallServiceSuggestion {
+            get {
+                return ResourceManager.GetString("Msg_InstallServiceSuggestion", resourceCulture);
             }
         }
         
@@ -198,6 +232,15 @@ namespace Servy.CLI.Resources {
         }
         
         /// <summary>
+        ///   Recherche une chaîne localisée semblable à Invalid value for {0}: &apos;{1}&apos;. Valid options: {2}.
+        /// </summary>
+        public static string Msg_InvalidEnumValue {
+            get {
+                return ResourceManager.GetString("Msg_InvalidEnumValue", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Recherche une chaîne localisée semblable à Invalid executable path: {0}. Ensure the file exists and is accessible..
         /// </summary>
         public static string Msg_InvalidExecutablePath {
@@ -207,11 +250,11 @@ namespace Servy.CLI.Resources {
         }
         
         /// <summary>
-        ///   Recherche une chaîne localisée semblable à The specified process path is invalid..
+        ///   Recherche une chaîne localisée semblable à Invalid integer format for {0}: &apos;{1}&apos;.
         /// </summary>
-        public static string Msg_InvalidPath {
+        public static string Msg_InvalidIntegerFormat {
             get {
-                return ResourceManager.GetString("Msg_InvalidPath", resourceCulture);
+                return ResourceManager.GetString("Msg_InvalidIntegerFormat", resourceCulture);
             }
         }
         
@@ -221,15 +264,6 @@ namespace Servy.CLI.Resources {
         public static string Msg_InvalidPathInConfig {
             get {
                 return ResourceManager.GetString("Msg_InvalidPathInConfig", resourceCulture);
-            }
-        }
-        
-        /// <summary>
-        ///   Recherche une chaîne localisée semblable à Invalid value..
-        /// </summary>
-        public static string Msg_InvalidValue {
-            get {
-                return ResourceManager.GetString("Msg_InvalidValue", resourceCulture);
             }
         }
         
@@ -245,9 +279,27 @@ namespace Servy.CLI.Resources {
         /// <summary>
         ///   Recherche une chaîne localisée semblable à Preparing environment....
         /// </summary>
-        public static string Msg_Preparing {
+        public static string Msg_PreparingEnvironment {
             get {
-                return ResourceManager.GetString("Msg_Preparing", resourceCulture);
+                return ResourceManager.GetString("Msg_PreparingEnvironment", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à restart service &apos;{0}&apos;.
+        /// </summary>
+        public static string Msg_RestartServiceAction {
+            get {
+                return ResourceManager.GetString("Msg_RestartServiceAction", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à Ensure the service is currently installed and that your account has sufficient permissions to stop and start services..
+        /// </summary>
+        public static string Msg_RestartServiceSuggestion {
+            get {
+                return ResourceManager.GetString("Msg_RestartServiceSuggestion", resourceCulture);
             }
         }
         
@@ -257,15 +309,6 @@ namespace Servy.CLI.Resources {
         public static string Msg_RestartSuccess {
             get {
                 return ResourceManager.GetString("Msg_RestartSuccess", resourceCulture);
-            }
-        }
-        
-        /// <summary>
-        ///   Recherche une chaîne localisée semblable à A disabled service with this name already exists. Choose a different name..
-        /// </summary>
-        public static string Msg_ServiceDisabled {
-            get {
-                return ResourceManager.GetString("Msg_ServiceDisabled", resourceCulture);
             }
         }
         
@@ -297,11 +340,11 @@ namespace Servy.CLI.Resources {
         }
         
         /// <summary>
-        ///   Recherche une chaîne localisée semblable à Failed to retrieve status for service &apos;{0}&apos;..
+        ///   Recherche une chaîne localisée semblable à query status for service &apos;{0}&apos;.
         /// </summary>
-        public static string Msg_ServiceStatusFailure {
+        public static string Msg_ServiceStatusAction {
             get {
-                return ResourceManager.GetString("Msg_ServiceStatusFailure", resourceCulture);
+                return ResourceManager.GetString("Msg_ServiceStatusAction", resourceCulture);
             }
         }
         
@@ -315,11 +358,56 @@ namespace Servy.CLI.Resources {
         }
         
         /// <summary>
+        ///   Recherche une chaîne localisée semblable à Verify the service name is spelled correctly and that it is currently installed on this system..
+        /// </summary>
+        public static string Msg_ServiceStatusSuggestion {
+            get {
+                return ResourceManager.GetString("Msg_ServiceStatusSuggestion", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à start service &apos;{0}&apos;.
+        /// </summary>
+        public static string Msg_StartServiceAction {
+            get {
+                return ResourceManager.GetString("Msg_StartServiceAction", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à Ensure the service is installed, the executable path is valid, and the service account has &apos;Log On As Service&apos; rights..
+        /// </summary>
+        public static string Msg_StartServiceSuggestion {
+            get {
+                return ResourceManager.GetString("Msg_StartServiceSuggestion", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Recherche une chaîne localisée semblable à Service &apos;{0}&apos; started successfully..
         /// </summary>
         public static string Msg_StartSuccess {
             get {
                 return ResourceManager.GetString("Msg_StartSuccess", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à stop service &apos;{0}&apos;.
+        /// </summary>
+        public static string Msg_StopServiceAction {
+            get {
+                return ResourceManager.GetString("Msg_StopServiceAction", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à Ensure you have Administrator privileges. If the service is unresponsive, you may need to terminate the process manually via Task Manager..
+        /// </summary>
+        public static string Msg_StopServiceSuggestion {
+            get {
+                return ResourceManager.GetString("Msg_StopServiceSuggestion", resourceCulture);
             }
         }
         
@@ -338,6 +426,24 @@ namespace Servy.CLI.Resources {
         public static string Msg_SuggestionTemplate {
             get {
                 return ResourceManager.GetString("Msg_SuggestionTemplate", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à uninstall service &apos;{0}&apos;.
+        /// </summary>
+        public static string Msg_UninstallServiceAction {
+            get {
+                return ResourceManager.GetString("Msg_UninstallServiceAction", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à Ensure the service is stopped before uninstalling and that you are running this command as an Administrator..
+        /// </summary>
+        public static string Msg_UninstallServiceSuggestion {
+            get {
+                return ResourceManager.GetString("Msg_UninstallServiceSuggestion", resourceCulture);
             }
         }
         
@@ -369,7 +475,7 @@ namespace Servy.CLI.Resources {
         }
         
         /// <summary>
-        ///   Recherche une chaîne localisée semblable à Wrapper executable not found at: %ProgramData%\Servy\Servy.Service.exe. Ensure Servy is properly installed..
+        ///   Recherche une chaîne localisée semblable à Wrapper executable not found at: %ProgramData%\Servy\Servy.Service.CLI.exe. Ensure Servy is properly installed..
         /// </summary>
         public static string Msg_WrapperNotFound {
             get {

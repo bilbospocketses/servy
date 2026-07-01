@@ -1,4 +1,4 @@
-#Requires -Version 3.0
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Retrieves recent error events from the 'Servy' event source.
@@ -20,8 +20,8 @@
     Project     : Servy
     
     Requirements:
-      - PowerShell 3.0 or later.
-      - Windows Vista / Windows Server 2008 or newer.
+      - PowerShell 5.1 or later.
+      - Windows 7 SP1 / Windows Server 2008 R2 or newer (required by PowerShell 5.1).
       - Note: This script is NOT compatible with Windows XP or Server 2003 
         due to the dependency on the Get-WinEvent cmdlet.
 
@@ -81,10 +81,10 @@ function Get-ServyLastErrors {
       return @() 
     }
 
-    $errorMsg = "Failed to query Windows event log for Servy errors: $_"
+    $errorMsg = "Servy Notification Error: Failed to query Windows event log for Servy errors: $_"
     try {
       # Fallback A: Try the Event Log
-      Write-EventLog -LogName Application -Source "Servy" -EventId $EventLogErrorId -EntryType Error -Message $errorMsg -ErrorAction Stop
+      Write-EventLog -LogName Application -Source "Servy" -EventId $EventLogErrorId -EntryType Warning -Message $errorMsg -ErrorAction Stop
     }
     catch {
       # Fallback B: Try the local file log
@@ -96,7 +96,7 @@ function Get-ServyLastErrors {
         Write-ServyLog -FilePath $logPath -Message $errorMsg
       }
       else {
-        Write-Warning "Get-ServyLastErrors: Missing required dependencies in '$PSScriptRoot'"
+        Write-Warning "Get-ServyLastErrors: Missing required dependencies in '$scriptHome'"
       }
     }
 

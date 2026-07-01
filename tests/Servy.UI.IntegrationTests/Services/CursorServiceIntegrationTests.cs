@@ -15,16 +15,10 @@ namespace Servy.UI.IntegrationTests.Services
             _service = new CursorService();
         }
 
-        #region STA Thread Helper
-
-
-
-        #endregion
-
         #region Branch: Headless / Null Dispatcher
 
         [Fact]
-        public void SetWaitCursor_WhenApplicationIsNull_DoesNotThrow()
+        public void SetWaitCursorAndResetCursor_WhenApplicationIsNull_DoNotThrow()
         {
             // Branch: if (Application.Current?.Dispatcher == null) return;
             // This is the default state in standard xUnit runners because Application.Current is null.
@@ -52,7 +46,7 @@ namespace Servy.UI.IntegrationTests.Services
             // Use the persistent STA context instead of the synchronous RunInSTA
             await Helper.RunOnSTA(async () =>
             {
-                EnsureApplicationContext();
+                Helper.EnsureApplication();
                 Mouse.OverrideCursor = Cursors.Hand;
 
                 // The service should detect we are on a background thread 
@@ -76,21 +70,6 @@ namespace Servy.UI.IntegrationTests.Services
                 // we can check the cursor state immediately.
                 Assert.Null(Mouse.OverrideCursor);
             });
-        }
-
-        #endregion
-
-        #region Helper Methods
-
-        /// <summary>
-        /// Safely initializes Application.Current if it doesn't exist for the test context.
-        /// </summary>
-        private static void EnsureApplicationContext()
-        {
-            if (Application.Current == null)
-            {
-                new Application();
-            }
         }
 
         #endregion

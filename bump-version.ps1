@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     This script updates the version of Servy in multiple locations:
-    - setup\build-config.ps1   ($Version variable)
+    - setup\build-config.ps1   (Version hashtable key)
     - All *.csproj files recursively   (<Version>, <FileVersion>, <AssemblyVersion>)
     - src\Servy.CLI\Servy.psd1   (ModuleVersion)
 
@@ -63,8 +63,7 @@ function Update-FileContent {
     param(
         [string]$Path,
         [string]$Pattern, 
-        [string]$Replacement,
-        [switch]$AllowNoMatch   # opt-in for callers that genuinely tolerate it
+        [string]$Replacement
     )
     
     try {
@@ -76,7 +75,9 @@ function Update-FileContent {
             $regexMatches = [regex]::Matches($content, $Pattern)
             if ($regexMatches.Count -eq 0) {
                 Write-Warning "No matches for pattern in $Path. The identifier may have been renamed or removed. Pattern: $Pattern"
-                if (-not $AllowNoMatch) { $script:HadFailure = $true }
+                
+                # A pattern missing exception is always treated as an unrecoverable run failure to keep the automated release pipeline safe.
+                $script:HadFailure = $true
                 return
             }
         
@@ -89,7 +90,9 @@ function Update-FileContent {
             Write-Host "Successfully updated ($($encoding.BodyName)): $Path ($($regexMatches.Count) replacements)" -ForegroundColor Green
         } else {
             Write-Warning "Skipping missing file: $Path"
-            if (-not $AllowNoMatch) { $script:HadFailure = $true }
+            
+            # Missing files are now classified deterministically as build failures.
+            $script:HadFailure = $true
         }
     }
     catch {
@@ -120,7 +123,7 @@ Get-ChildItem -Path $baseDir -Recurse -Filter *.csproj -ErrorAction SilentlyCont
         $encoding = Get-FileEncoding $csproj
         $content = [System.IO.File]::ReadAllText($csproj, $encoding)
 
-        # LOGIC: Track total matches across all tags to ensure the script is not silent on no-match.
+        # Track total matches across all tags to ensure the script is not silent on no-match.
         # This prevents the "worst failure mode" where projects appear updated but remain on old versions.
         $totalReplacements = 0
         $versionTags = @('Version', 'FileVersion', 'AssemblyVersion')
@@ -159,7 +162,7 @@ Get-ChildItem -Path $baseDir -Recurse -Filter *.csproj -ErrorAction SilentlyCont
             [System.IO.File]::WriteAllText($csproj, $content, $encoding)
             Write-Host "Successfully updated project ($($encoding.BodyName)): $csproj ($totalReplacements replacements)" -ForegroundColor Green
         } else {
-            # LOG: Warn instead of Error, as non-shipping helper projects may legitimately lack version tags.
+            # Warn instead of Error, as non-shipping helper projects may legitimately lack version tags.
             # This mirrors the visibility of Update-FileContent without strictly terminating the script.
             Write-Warning "Skipped project: No versioning identifiers found in $csproj. Verify if this project requires version metadata."
         }

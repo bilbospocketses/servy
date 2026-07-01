@@ -20,6 +20,9 @@ on:
 permissions:
   contents: write  # Required for peaceiris/actions-gh-pages to push badges
 
+env:
+  LOC_BADGE_COLOR: green
+
 jobs:
   loc_job:
     runs-on: ubuntu-latest
@@ -39,7 +42,7 @@ jobs:
           debug: true
           directory: ./
           badge_label: 'LoC prod'
-          badge_color: green
+          badge_color: ${{ env.LOC_BADGE_COLOR }}
           badge: ./output/loc-prod.svg
           ignore: '.gitignore|*.txt|.github|setup|tests|bin|obj|*.ico|*.ps1|*.psm1|*.bat|*.csproj|*.sln|*.md|*.yml|*.pdb|*.dll|*.exe|*.Designer.cs|*.g.cs|*.resx|*.manifest|*.json|*.png'
 
@@ -53,7 +56,7 @@ jobs:
           debug: true
           directory: ./
           badge_label: 'LoC tests'
-          badge_color: green
+          badge_color: ${{ env.LOC_BADGE_COLOR }}
           badge: ./output/loc-tests.svg
           ignore: '.gitignore|*.txt|.github|setup|tests/data|src|bin|obj|*.ico|*.ps1|*.psm1|*.bat|*.csproj|*.sln|*.md|*.yml|*.pdb|*.dll|*.exe|*.Designer.cs|*.g.cs|*.resx|*.manifest|*.json|*.png'
 
@@ -62,9 +65,12 @@ jobs:
       # ----------------------------
       - name: Create total LoC badge
         id: loc_total
+        env:
+          PROD_LINES: ${{ steps.loc_prod.outputs.total_lines }}
+          TESTS_LINES: ${{ steps.loc_tests.outputs.total_lines }}
         run: |
           # Compute total
-          TOTAL=$(( ${{ steps.loc_prod.outputs.total_lines }} + ${{ steps.loc_tests.outputs.total_lines }} ))
+          TOTAL=$(( PROD_LINES + TESTS_LINES ))
           echo "Total LoC: $TOTAL"
 
           # Force locale for printf to add commas
@@ -79,27 +85,28 @@ jobs:
           mkdir -p ./output
 
           # Use shields.io static badge generation with URL-encoded label
-          # FIX: Escape commas to ensure strict RFC 3986 compliance
+          # Escape commas to ensure strict RFC 3986 compliance
           ENCODED_TOTAL=$(echo "$TOTAL_COMMA" | sed 's/,/%2C/g')
-          URL="https://img.shields.io/badge/LoC%20total-${ENCODED_TOTAL}-3BC41C"
+          
+          URL="https://img.shields.io/badge/LoC%20total-${ENCODED_TOTAL}-${{ env.LOC_BADGE_COLOR }}"
           echo "URL: ${URL}"
 
-          # FIX: Fail step on HTTP errors (-f) and show errors (-S) to prevent publishing garbage
+          # Fail step on HTTP errors (-f) and show errors (-S) to prevent publishing garbage
           curl -fsS -o ./output/loc-total.svg "${URL}"
 
       # ----------------------------
       # Summary
       # ----------------------------
       - name: Summary
+        env:
+          PROD_SUMMARY: ${{ steps.loc_prod.outputs.total_lines }}
+          TESTS_SUMMARY: ${{ steps.loc_tests.outputs.total_lines }}
+          TOTAL_SUMMARY: ${{ steps.loc_total.outputs.total_lines }}
         run: |
-          PROD=${{ steps.loc_prod.outputs.total_lines }}
-          TESTS=${{ steps.loc_tests.outputs.total_lines }}
-          TOTAL=${{ steps.loc_total.outputs.total_lines }}
-
           echo "### LoC Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- Prod:  $PROD lines" >> $GITHUB_STEP_SUMMARY
-          echo "- Tests: $TESTS lines" >> $GITHUB_STEP_SUMMARY
-          echo "- Total: $TOTAL lines" >> $GITHUB_STEP_SUMMARY
+          echo "- Prod:  $PROD_SUMMARY lines" >> $GITHUB_STEP_SUMMARY
+          echo "- Tests: $TESTS_SUMMARY lines" >> $GITHUB_STEP_SUMMARY
+          echo "- Total: $TOTAL_SUMMARY lines" >> $GITHUB_STEP_SUMMARY
 
       # ----------------------------
       # Deploy badges

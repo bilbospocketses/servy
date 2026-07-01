@@ -1,5 +1,4 @@
 ﻿using Servy.Core.Config;
-using Servy.Core.Data;
 using Servy.Core.Logging;
 using System.Diagnostics;
 using System.Reflection;
@@ -48,9 +47,11 @@ namespace Servy.Core.Helpers
         /// <param name="extension">The file extension (e.g., "exe" or "dll").</param>
         /// <param name="stopServices">Whether to stop services before copying the resource.</param>
         /// <param name="isCli">Whether we are in CLI or not.</param>
+        /// <param name="cancellationToken">An optional token to monitor for cancellation requests during execution.</param>
         /// <returns>
-        /// True if the copy succeeded (or was not needed) AND all stopped services were successfully restarted; 
-        /// otherwise, false.
+        /// True if the copy succeeded (or was not needed); otherwise, false.
+        /// Failures to restart previously-running services do not affect the return value;
+        /// they are surfaced via <see cref="Logger.Error(string, Exception)"/>.
         /// </returns>
         public async Task<bool> CopyEmbeddedResource(
             Assembly assembly,
@@ -58,7 +59,8 @@ namespace Servy.Core.Helpers
             string fileName,
             string extension,
             bool stopServices = true,
-            bool isCli = false)
+            bool isCli = false,
+            CancellationToken cancellationToken = default)
         {
             bool copyDone = false; // Tracks if the physical file copy succeeded
 
@@ -93,13 +95,18 @@ namespace Servy.Core.Helpers
                         if (stopServices && runningServices.Count > 0)
                         {
                             Logger.Info($"Stopping services before copying resource '{resourceName}': {string.Join(", ", runningServices)}");
-                            await _serviceHelper.StopServices(runningServices);
+                            // Forward the cancellation token to the polling routine
+                            await _serviceHelper.StopServices(runningServices, cancellationToken);
                         }
+
+                        // Check cancellation boundary right before process execution checks
+                        cancellationToken.ThrowIfCancellationRequested();
 
                         if (!TerminateBlockingProcesses(targetPath))
                             return false;
 
-                        await Helper.WriteFileAtomicAsync(targetPath, resourceStream.CopyToAsync);
+                        // Plumb the token parameter through to the atomic I/O engine
+                        await Helper.WriteFileAtomicAsync(targetPath, resourceStream.CopyToAsync, cancellationToken);
                         copyDone = true; // File write succeeded natively within the execution path
                     }
                     finally
@@ -109,7 +116,10 @@ namespace Servy.Core.Helpers
                             try
                             {
                                 Logger.Info($"Starting stopped services after copying resource '{resourceName}': {string.Join(", ", runningServices)}");
-                                await _serviceHelper.StartServices(runningServices);
+
+                                // Intentionally pass CancellationToken.None here so an upfront 
+                                // pipeline cancellation signal doesn't discard orphaned background services.
+                                await _serviceHelper.StartServices(runningServices, CancellationToken.None);
                             }
                             catch (Exception startEx)
                             {
@@ -339,12 +349,9 @@ namespace Servy.Core.Helpers
         /// <returns>True if the file was successfully cleared of blocking processes; false if termination failed.</returns>
         private bool TerminateBlockingProcesses(string targetPath)
         {
-            // Fix for #Warning: Use path-based identification for all resource types.
-            // Name-based matching (targetFileName) hits unrelated services on the same host 
-            // that happen to be running their own copy of the same executable (e.g., Servy.Restarter.exe).
-
-            // KillProcessesUsingFile surgically finds the PIDs locking THIS specific file
-            // and terminates their entire trees, leaving "Service B's" restarter untouched.
+            // Identify lock holders by path (not by executable name) so we surgically terminate
+            // only the trees locking THIS specific file, leaving unrelated services that run
+            // their own copy of the same executable (e.g., Servy.Restarter.exe) untouched.
             if (!_processKiller.KillProcessesUsingFile(targetPath))
             {
                 Logger.Error($"Could not clear file locks on '{targetPath}'. Extraction aborted to prevent file corruption.");

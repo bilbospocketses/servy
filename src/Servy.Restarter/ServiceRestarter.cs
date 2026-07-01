@@ -67,7 +67,25 @@ namespace Servy.Restarter
                 }
 
                 // 2. Stop phase
-                if (controller.Status != ServiceControllerStatus.Stopped)
+                // ROBUSTNESS: Secure the stop-phase entry check against mid-flight uninstalls 
+                // to prevent unhandled top-level crashes before entering the main execution frame.
+                ServiceControllerStatus stopEntryStatus;
+                try
+                {
+                    stopEntryStatus = controller.Status;
+                }
+                catch (InvalidOperationException)
+                {
+                    // Clean exit if the service vanished between the settle phase and this query
+                    return;
+                }
+                catch (Win32Exception)
+                {
+                    // Clean exit if native SCM handle drops out under race conditions
+                    return;
+                }
+
+                if (stopEntryStatus != ServiceControllerStatus.Stopped)
                 {
                     try
                     {
@@ -187,9 +205,9 @@ namespace Servy.Restarter
                     controller.WaitForStatus(targetStatus, remaining);
                     return;
                 }
-                catch (InvalidOperationException)
+                catch (Exception ex) when (ex is InvalidOperationException || ex is Win32Exception)
                 {
-                    // Still transitional, wait a bit before the next poll
+                    // Still transitional or experiencing transient SCM access blocks; wait before the next poll
                     var remaining = timeout - stopwatch.Elapsed;
                     if (remaining <= TimeSpan.Zero) break;
                     Thread.Sleep((int)Math.Min(AppConfig.ServiceRestarterPollIntervalMs, remaining.TotalMilliseconds));

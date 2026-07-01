@@ -1,5 +1,4 @@
 ﻿using Moq;
-using Servy.Core.Data;
 using Servy.Core.Helpers;
 using System.Reflection;
 
@@ -55,7 +54,7 @@ namespace Servy.Core.IntegrationTests.Helpers
 
             // Act
             bool result = await _resourceHelper.CopyEmbeddedResource(
-                _mockAssembly.Object, "Servy.Resources", fileName, extension, stopServices: false);
+                _mockAssembly.Object, "Servy.Resources", fileName, extension, stopServices: false, cancellationToken: TestContext.Current.CancellationToken);
 
             // Assert
             Assert.True(result); // Should return true early
@@ -70,7 +69,7 @@ namespace Servy.Core.IntegrationTests.Helpers
 
             // Act
             bool result = await _resourceHelper.CopyEmbeddedResource(
-                _mockAssembly.Object, "Servy.Resources", "lockedapp", "exe", stopServices: false);
+                _mockAssembly.Object, "Servy.Resources", "lockedapp", "exe", stopServices: false, cancellationToken: TestContext.Current.CancellationToken);
 
             // Assert
             Assert.False(result);
@@ -85,7 +84,7 @@ namespace Servy.Core.IntegrationTests.Helpers
 
             // Act
             bool result = await _resourceHelper.CopyEmbeddedResource(
-                _mockAssembly.Object, "Servy.Resources", "missingapp", "exe", stopServices: false);
+                _mockAssembly.Object, "Servy.Resources", "missingapp", "exe", stopServices: false, cancellationToken: TestContext.Current.CancellationToken);
 
             // Assert
             Assert.False(result);
@@ -108,7 +107,7 @@ namespace Servy.Core.IntegrationTests.Helpers
 
             // Act
             bool result = await _resourceHelper.CopyEmbeddedResource(
-                _mockAssembly.Object, "Servy.Resources", fileName, extension, stopServices: false);
+                _mockAssembly.Object, "Servy.Resources", fileName, extension, stopServices: false, cancellationToken: TestContext.Current.CancellationToken);
 
             // Assert
             Assert.True(result);
@@ -121,19 +120,19 @@ namespace Servy.Core.IntegrationTests.Helpers
         public async Task CopyEmbeddedResource_ThrowsException_CaughtByOuterCatch_ReturnsFalse()
         {
             // Arrange
-            // Passing a null assembly will trigger a NullReferenceException inside ShouldCopyResource when accessing assembly.Location
+            // Passing a null assembly throws a NullReferenceException at assembly.GetManifestResourceStream(...), which the outer catch converts to a false result
             Assembly nullAssembly = null!;
 
             // Act
             bool result = await _resourceHelper.CopyEmbeddedResource(
-                nullAssembly, "Servy.Resources", "crashapp", "exe", stopServices: false);
+                nullAssembly, "Servy.Resources", "crashapp", "exe", stopServices: false, cancellationToken: TestContext.Current.CancellationToken);
 
             // Assert
             Assert.False(result); // Caught successfully
         }
 
         [Fact]
-        public void CopyEmbeddedResourceSync_Success_WritesFileToDisk()
+        public void CopyEmbeddedResourceForceSync_Success_WritesFileToDisk()
         {
             // Arrange
             string fileName = "syncapp";
@@ -156,7 +155,7 @@ namespace Servy.Core.IntegrationTests.Helpers
         }
 
         [Fact]
-        public void CopyEmbeddedResourceSync_ThrowsException_CaughtByOuterCatch_ReturnsFalse()
+        public void CopyEmbeddedResourceForceSync_ThrowsException_CaughtByOuterCatch_ReturnsFalse()
         {
             // Arrange - Force null ref to hit the catch block
             Assembly nullAssembly = null!;

@@ -29,9 +29,9 @@
     <AssemblyDescription>A tool to manage services installed by Servy</AssemblyDescription>
     <Company>Akram El Assas</Company>
     <Product>Servy.Manager</Product>
-    <Version>8.5.0</Version>
-    <FileVersion>8.5.0.0</FileVersion>
-    <AssemblyVersion>8.5.0.0</AssemblyVersion>
+    <Version>8.6.0</Version>
+    <FileVersion>8.6.0.0</FileVersion>
+    <AssemblyVersion>8.6.0.0</AssemblyVersion>
     <Copyright>Copyright © 2026 Akram El Assas. All rights reserved.</Copyright>
   </PropertyGroup>
 
@@ -58,8 +58,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.8" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.9" />
   </ItemGroup>
 
   <ItemGroup>
@@ -87,6 +87,9 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Update="Views\ConsoleView.xaml.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Update="Views\ServiceSearchUserControl.cs">
       <SubType>Code</SubType>
     </Compile>
   </ItemGroup>

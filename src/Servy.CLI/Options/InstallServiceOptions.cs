@@ -119,7 +119,7 @@ namespace Servy.CLI.Options
         public bool EnableSizeRotation { get; set; }
 
         /// <summary>
-        /// Gets or sets the rotation size in bytes for log files.
+        /// Gets or sets the rotation size in megabytes (MB) for log files.
         /// Must be >= 1 MB if rotation is enabled.
         /// </summary>
         [Option("rotationSize", HelpText = "Log rotation size in Megabytes (MB). Must be greater than or equal to 1 MB.")]
@@ -211,7 +211,7 @@ namespace Servy.CLI.Options
         /// Gets or sets the failure program path.
         /// Optional.
         /// </summary>
-        [Option("failureProgramPath", HelpText = "The failure program path. Configure a script or executable to run when the process fails to start. If health monitoring is disabled, the program will run when the process fails to start. If health monitoring is enabled, the program will only run after all configured recovery action retries have failed. Supports environment variable expansion, example: %JAVA_HOME%\\bin\\java.exe")]
+        [Option("failureProgramPath", HelpText = "The failure program path. Configure a script or executable to run when the wrapped process exits with a non-zero exit code (recovery disabled) or after all recovery action retries have failed (recovery enabled). It is not run when the process fails to start; that path simply stops the service. Supports environment variable expansion, example: %JAVA_HOME%\\bin\\java.exe")]
         public string? FailureProgramPath { get; set; }
 
         /// <summary>
@@ -244,7 +244,7 @@ namespace Servy.CLI.Options
         /// variable instead.
         /// </remarks>
         [Sensitive]
-        [Option("envVars", HelpText = "Environment variables for the process. Enter variables in the format varName=varValue separated by semicolons (;). Use \\= to escape '=', \\\" to escape '\"', \\; to escape ';' and \\\\ to escape '\\'. Supports environment variable expansion, example: VAR1=%ProgramData%\\MyApp; VAR2=%VAR1%\\bin. SECURITY WARNING: Use the " + AppConfig.EnvironmentVariablesEnvVarName + " environment variable instead to avoid exposing sensitive parameters in OS process listings.")]
+        [Option("envVars", HelpText = "Environment variables for the process. Enter variables in the format varName=varValue separated by semicolons (;). Use \\= to escape '=', \\\" to escape '\"', \\; to escape ';', \\\\ to escape '\\', and %% to escape '%' (collapses to a single '%'). Supports environment variable expansion, example: VAR1=%ProgramData%\\MyApp; VAR2=%VAR1%\\bin. SECURITY WARNING: Use the " + AppConfig.EnvironmentVariablesEnvVarName + " environment variable instead to avoid exposing sensitive parameters in OS process listings.")]
         public string? EnvironmentVariables { get; set; }
 
         /// <summary>
@@ -263,7 +263,7 @@ namespace Servy.CLI.Options
             HelpText = "The service account username (e.g., .\\username, DOMAIN\\username, or DOMAIN\\gMSA$). " +
                        "If this option is not set, the service runs under Local System. " +
                        "If the service runs under an account other than Local System, " +
-                       "you must grant write access to %ProgramData%\\Servy " +
+                       "you must grant Modify access to %ProgramData%\\Servy " +
                        "for the account that runs the service."
         )]
         public string? User { get; set; }
@@ -317,7 +317,7 @@ namespace Servy.CLI.Options
         /// variable instead.
         /// </remarks>
         [Sensitive]
-        [Option("preLaunchEnv", HelpText = "Environment variables for the pre-launch executable. Enter variables in the format varName=varValue separated by semicolons (;). Use \\= to escape '=', \\\" to escape '\"', \\; to escape ';' and \\\\ to escape '\\'. Supports environment variable expansion, example: VAR1=%ProgramData%\\MyApp; VAR2=%VAR1%\\bin. SECURITY WARNING: Use the " + AppConfig.PreLaunchEnvironmentVariablesEnvVarName + " environment variable instead to avoid exposing sensitive parameters in OS process listings.")]
+        [Option("preLaunchEnv", HelpText = "Environment variables for the pre-launch executable. Enter variables in the format varName=varValue separated by semicolons (;). Use \\= to escape '=', \\\" to escape '\"', \\; to escape ';', \\\\ to escape '\\', and %% to escape '%' (collapses to a single '%'). Supports environment variable expansion, example: VAR1=%ProgramData%\\MyApp; VAR2=%VAR1%\\bin. SECURITY WARNING: Use the " + AppConfig.PreLaunchEnvironmentVariablesEnvVarName + " environment variable instead to avoid exposing sensitive parameters in OS process listings.")]
         public string? PreLaunchEnvironmentVariables { get; set; }
 
         /// <summary>

@@ -32,21 +32,17 @@ jobs:
     timeout-minutes: 60  # Prevents indefinite hangs if signing or VT APIs stall
 
     env:
-      ROOT_DIR: ${{ github.workspace }}
       CONFIGURATION: Release
       TFM: net10.0-windows
       ISCC: 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+      MAX_RETRIES: 5 # Maximum retry attempts for resilient network down-stream script downloads
       
       # Dynamic Environment Variables based on selected architecture
-      RUNTIME: ${{ inputs.arm64 && 'win-arm64' || 'win-x64' }}
-      ARCH: ${{ inputs.arm64 && 'arm64' || 'x64' }}
-      ISS_FILE: ${{ inputs.arm64 && 'setup\servy-arm64.iss' || 'setup\servy.iss' }}
+      RUNTIME: ${{ inputs.arm64 == true && 'win-arm64' || 'win-x64' }}
+      ARCH: ${{ inputs.arm64 == true && 'arm64' || 'x64' }}
+      ISS_FILE: ${{ inputs.arm64 == true && 'setup\servy-arm64.iss' || 'setup\servy.iss' }}
       
       # Binary Version & Checksum Pins
-      CYCLONEDX_TOOL_VERSION: "6.2.0"
-      CYCLONEDX_TOOL_HASH: "3473525381eee02a649b75bbf5b4f0ffa66112f62917aff798fed196e290a884" # the actual SHA256 hash of the CycloneDX nupkg
-      CYCLONEDX_CLI_VERSION: "v0.31.0"
-      CYCLONEDX_CLI_HASH: "da18bdb0d5b10a5f45ddfb59b7b08b11ddc050bb5c6407608d831929a1799d3f"
       INNO_SETUP_VERSION: "6.6.1"
       INNO_SETUP_HASH: "d243ce440c02705530699554fb9612b9b2bd7a2a90629cdb7f41e66f5faeb91f"
       SEVEN_ZIP_VERSION: "26.01"
@@ -92,78 +88,10 @@ jobs:
       - name: Setup .NET
         uses: ./.github/actions/setup-dotnet
 
-      - name: Check .NET version
-        run: dotnet --version
+      - name: Install CycloneDX Tools
+        uses: ./.github/actions/setup-cyclonedx
 
-      - name: Install CycloneDX .NET Tool
-        shell: pwsh
-        run: |
-          # --- SECURITY CHECK: SHA256 PINNING FOR .NET TOOL ---
-          # We verify the CycloneDX nupkg itself. To ensure transitive dependencies 
-          # are also verified/pinned, we utilize an isolated NuGet.config below.
-          Write-Host "Downloading CycloneDX .NET Tool package for verification..."
-          $toolPkgUri = "https://www.nuget.org/api/v2/package/CycloneDX/$env:CYCLONEDX_TOOL_VERSION"
-          $toolPkgDir = "$env:USERPROFILE\cyclonedx-tool"
-          New-Item -ItemType Directory -Force -Path $toolPkgDir | Out-Null
-          $toolPkgPath = "$toolPkgDir\CycloneDX.$env:CYCLONEDX_TOOL_VERSION.nupkg"
-          Invoke-WebRequest -Uri $toolPkgUri -OutFile $toolPkgPath -ErrorAction Stop
-
-          Write-Host "Verifying SHA256 checksum of CycloneDX .NET Tool package..."
-          $actualToolHash = (Get-FileHash $toolPkgPath -Algorithm SHA256).Hash
-          if ($actualToolHash -ne $env:CYCLONEDX_TOOL_HASH) {
-              throw "Security Breach: CycloneDX .NET Tool hash mismatch! Expected: $($env:CYCLONEDX_TOOL_HASH), Got: $actualToolHash"
-          }
-          Write-Host "Tool package checksum verified successfully."
-          
-          # --- ISOLATION: Enforce local source only ---
-          $nugetConfig = @"
-          <?xml version="1.0" encoding="utf-8"?>
-          <configuration>
-            <packageSources>
-              <clear />
-              <add key="LocalVerified" value="$toolPkgDir" />
-            </packageSources>
-          </configuration>
-          "@
-          $nugetConfig | Set-Content -Path "$toolPkgDir\nuget.config"
-
-          # Continue with the .NET tool installation using the isolated source configuration
-          dotnet tool install --global CycloneDX --version $env:CYCLONEDX_TOOL_VERSION --configfile "$toolPkgDir\nuget.config"
-          Add-Content -Path $env:GITHUB_PATH -Value "$env:USERPROFILE\.dotnet\tools"
-
-      - name: Install CycloneDX CLI from GitHub
-        shell: pwsh
-        run: |
-          $v = $env:CYCLONEDX_CLI_VERSION
-          if (-not $v) { 
-              throw "CYCLONEDX_CLI_VERSION environment variable not set" 
-          }
-          
-          # Force a hard stop if the download fails (e.g., GitHub is down or version is wrong)
-          $uri = "https://github.com/CycloneDX/cyclonedx-cli/releases/download/$v/cyclonedx-win-x64.exe"
-          
-          # Isolate the binary in a dedicated subfolder to prevent broad PATH exposure
-          $cliDir = "$env:USERPROFILE\cyclonedx-cli"
-          New-Item -ItemType Directory -Force -Path $cliDir | Out-Null
-          $outPath = "$cliDir\cyclonedx.exe"
-          
-          Write-Host "Downloading CycloneDX CLI from $uri"
-          Invoke-WebRequest -Uri $uri -OutFile $outPath -ErrorAction Stop
-          
-          # --- SECURITY CHECK: SHA256 PINNING ---
-          Write-Host "Verifying SHA256 checksum of CycloneDX CLI..."
-          $actualHash = (Get-FileHash $outPath -Algorithm SHA256).Hash
-          
-          if ($actualHash -ne $env:CYCLONEDX_CLI_HASH) {
-              throw "Security Breach: CycloneDX CLI hash mismatch! Expected: $($env:CYCLONEDX_CLI_HASH), Got: $actualHash"
-          }
-          Write-Host "Checksum verified successfully."
-          # --------------------------------------
-          
-          # Append only the isolated subfolder to PATH
-          Add-Content -Path $env:GITHUB_PATH -Value $cliDir
-
-      - name: Install Inno Setup from GitHub
+      - name: Stage Inno Setup Download Configuration
         shell: pwsh
         run: |
           # 1. Define version and paths
@@ -176,7 +104,24 @@ jobs:
           $installer = "innosetup.exe"
           
           Write-Host "Downloading Inno Setup v$version..."
-          Invoke-WebRequest -Uri $url -OutFile $installer -ErrorAction Stop
+          
+          # DRY UNIFICATION: Outsource loop payload mechanics to our central action infrastructure
+          Add-Content -Path $env:GITHUB_ENV -Value "INNO_URL=$url"
+          Add-Content -Path $env:GITHUB_ENV -Value "INNO_OUT=$installer"
+
+      - name: Download Inno Setup Payload
+        uses: ./.github/actions/download-with-retry
+        with:
+          url: ${{ env.INNO_URL }}
+          output_path: ${{ env.INNO_OUT }}
+          asset_name: 'Inno Setup Installer'
+          max_retries: ${{ env.MAX_RETRIES }}
+
+      - name: Verify and Install Inno Setup
+        shell: pwsh
+        run: |
+          $installer = "innosetup.exe"
+          $expectedHash = $env:INNO_SETUP_HASH
           
           # --- SECURITY CHECK 1: SHA256 PINNING ---
           Write-Host "Verifying SHA256 checksum of Inno Setup..."
@@ -186,23 +131,20 @@ jobs:
               throw "Security Breach: Inno Setup hash mismatch! Expected: $expectedHash, Got: $actualHash"
           }
           Write-Host "Checksum verified successfully."
-          # ----------------------------------------
           
           # --- SECURITY CHECK 2: AUTHENTICODE ---
           Write-Host "Verifying Authenticode signature of Inno Setup..."
           $sig = Get-AuthenticodeSignature $installer
-          
           if ($sig.Status -ne 'Valid') { 
               throw "Inno Setup signature check failed: $($sig.Status). The file may be compromised." 
           }
           Write-Host "Signature verified successfully."
-          # --------------------------------------
 
           Write-Host "Installing Inno Setup silently..."
           Start-Process ".\$installer" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait
           if (-not (Test-Path $env:ISCC)) { throw "ISCC.exe not found at $env:ISCC" }
 
-      - name: Install 7zip from GitHub
+      - name: Stage 7zip Download Configuration
         shell: pwsh
         run: |
           # 1. Define version and paths
@@ -210,38 +152,47 @@ jobs:
           $fileVersion = $version.Replace(".", "") # Converts "26.01" to "2601"
           $url = "https://github.com/ip7z/7zip/releases/download/$version/7z$fileVersion-x64.exe"
           $installer = "7z_setup.exe"
+          
+          Write-Host "Downloading 7-Zip v$version..."
+          
+          # Staged environment variable names updated to avoid numerical-starting parsing bugs
+          Add-Content -Path $env:GITHUB_ENV -Value "SEVENZ_URL=$url"
+          Add-Content -Path $env:GITHUB_ENV -Value "SEVENZ_OUT=$installer"
+
+      - name: Download 7-Zip Payload
+        uses: ./.github/actions/download-with-retry
+        with:
+          url: ${{ env.SEVENZ_URL }}
+          output_path: ${{ env.SEVENZ_OUT }}
+          asset_name: '7-Zip Installer'
+          max_retries: ${{ env.MAX_RETRIES }}
+
+      - name: Verify and Install 7-Zip
+        shell: pwsh
+        run: |
+          $installer = "7z_setup.exe"
           $installDir = "C:\7-Zip"
           $exePath = "$installDir\7z.exe"
-
-          # 2. Download from GitHub Releases
-          Write-Host "Downloading 7-Zip v$version..."
-          Invoke-WebRequest -Uri $url -OutFile $installer -ErrorAction Stop
 
           # --- SECURITY CHECK: SHA256 PINNING ---
           Write-Host "Verifying SHA256 checksum of 7-Zip..."
           $actualHash = (Get-FileHash $installer -Algorithm SHA256).Hash
-                
           if ($actualHash -ne $env:SEVEN_ZIP_HASH) {
               throw "Security Breach: 7-Zip hash mismatch! Expected: $($env:SEVEN_ZIP_HASH), Got: $actualHash"
           }
           Write-Host "Checksum verified successfully."
-          # --------------------------------------
 
           # 3. Install silently to a fixed directory
           Write-Host "Installing to $installDir..."
           Start-Process ".\$installer" -ArgumentList "/S", "/D=$installDir" -Wait
 
-          # 4. Set environment variable for the CURRENT session
+          # 4. Set variables for runtime state context
           $env:SEVEN_ZIP = $exePath
-
-          # 5. Set environment variable for FUTURE steps in the workflow
-          echo "SEVEN_ZIP=$exePath" >> $env:GITHUB_ENV
-
-          # 6. Verification & Version Check
-          if (-not (Test-Path $env:SEVEN_ZIP)) { throw "7z.exe not found at $env:SEVEN_ZIP" }
+          Add-Content -Path $env:GITHUB_ENV -Value "SEVEN_ZIP=$exePath"
+          if (-not (Test-Path $exePath)) { throw "7z.exe not found at $exePath" }
 
           Write-Host "7-Zip installed successfully!"
-          & $env:SEVEN_ZIP | Select-String "7-Zip"
+          & $exePath | Select-String "7-Zip"
 
       # -----------------------------------------------------
       # Run unit tests
@@ -262,7 +213,7 @@ jobs:
       - name: Run all tests
         if: ${{ inputs.arm64 == false }}
         shell: pwsh
-        run: dotnet test Servy.sln --configuration $env:CONFIGURATION --no-build --filter "Category!=ReflectionValidation"
+        run: dotnet test Servy.sln --configuration $env:CONFIGURATION --no-build
 
       # -----------------------------------------------------
       # Build and Publish SBOM
@@ -270,35 +221,8 @@ jobs:
       - name: Generate SBOM
         shell: pwsh
         run: |
-          # Use subexpression operator $() to safely append the .0 suffix
-          $version = "$($env:VERSION).0"
-          
-          $projects = @(
-              @{ Path = 'src\Servy\Servy.csproj';                     File = 'sbom-Servy.xml' }
-              @{ Path = 'src\Servy.CLI\Servy.CLI.csproj';             File = 'sbom-Servy.CLI.xml' }
-              @{ Path = 'src\Servy.Manager\Servy.Manager.csproj';     File = 'sbom-Servy.Manager.xml' }
-              @{ Path = 'src\Servy.Restarter\Servy.Restarter.csproj'; File = 'sbom-Servy.Restarter.xml' }
-              @{ Path = 'src\Servy.Service\Servy.Service.csproj';     File = 'sbom-Servy.Service.xml' }
-          )
-          
-          # Explicitly check for native command failures to prevent partial SBOMs
-          foreach ($p in $projects) {
-              dotnet-CycloneDX $p.Path --recursive --set-version "$version" --output . --filename $p.File
-              if ($LASTEXITCODE -ne 0) {
-                  Write-Error "dotnet-CycloneDX failed for $($p.Path) (exit $LASTEXITCODE)"
-                  exit $LASTEXITCODE
-              }
-          }
-          
           $outputFile = "servy-$($env:VERSION)-sbom.xml"
-          
-          # Merge into servy-$env:VERSION-sbom.xml
-          $sbomFiles = $projects | ForEach-Object { $_.File }
-          cyclonedx merge --input-files $sbomFiles --output-file "$outputFile"
-          if ($LASTEXITCODE -ne 0) { 
-              Write-Error "cyclonedx merge failed (exit $LASTEXITCODE)";
-              exit $LASTEXITCODE 
-          }
+          & setup/generate-sbom.ps1 -BaseVersion $env:VERSION -OutputFile $outputFile
 
       - name: Upload SBOM
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
@@ -605,8 +529,8 @@ jobs:
           Move-Item -Path $originalPath -Destination $signPathTarget -Force
           
           # Export explicit paths for downstream steps
-          echo "UNSIGNED_INSTALLER_PATH=$signPathTarget" >> $env:GITHUB_ENV
-          echo "SIGNED_INSTALLER_DIR=signed/installer" >> $env:GITHUB_ENV
+          Add-Content -Path $env:GITHUB_ENV -Value "UNSIGNED_INSTALLER_PATH=$signPathTarget"
+          Add-Content -Path $env:GITHUB_ENV -Value "SIGNED_INSTALLER_DIR=signed/installer"
 
       - name: Upload installer (unsigned)
         id: unsigned-installer
@@ -642,7 +566,7 @@ jobs:
           Move-Item -Path $source -Destination $targetPath -Force
           
           # Export the final artifact path
-          echo "FINAL_INSTALLER_PATH=$targetPath" >> $env:GITHUB_ENV
+          Add-Content -Path $env:GITHUB_ENV -Value "FINAL_INSTALLER_PATH=$targetPath"
 
       - name: Upload signed installer
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
@@ -681,10 +605,15 @@ jobs:
           # Task Scheduler setup - Hardened Recursive Copy
           $destPath = Join-Path $pkg "taskschd"
           $sourcePath = "setup\taskschd"
-          if (-not (Test-Path $destPath)) { New-Item -Path $destPath -ItemType Directory -Force }
+          if (-not (Test-Path $destPath)) { New-Item -Path $destPath -ItemType Directory -Force | Out-Null }
 
           Get-ChildItem -Path $sourcePath -Recurse -File |
-              Where-Object { $_.Name -notin @('smtp-cred.xml') -and $_.Extension -notin @('.dat','.log') } |
+              Where-Object { 
+                  $_.Name -notin @('smtp-cred.xml') -and 
+                  $_.Extension -notin @('.dat','.log') -and 
+                  $_.Name -notin @('temp.ps1') -and 
+                  $_.Name -notlike '*.test.ps1'
+              } |
               ForEach-Object {
                   # Calculate relative path to maintain subdirectory structure in the destination
                   $rel = $_.FullName.Substring((Resolve-Path $sourcePath).Path.Length + 1)
@@ -710,12 +639,14 @@ jobs:
             "$zip" `
             "$pkg"
 
+          if ($LASTEXITCODE -ne 0) { throw "7-Zip packaging failed with exit code $LASTEXITCODE" }
+
           Remove-Item $pkg -Recurse -Force
 
       - name: Upload portable package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 #v4.6.2
         with:
-          name: portable-${{ env.ARCH }}-7z
+          name: portable-${{ env.ARCH }}
           path: servy-${{ env.VERSION }}-${{ env.ARCH }}-portable.7z
           if-no-files-found: error
           retention-days: 1
@@ -724,7 +655,6 @@ jobs:
       # Scan with VirusTotal
       # -----------------------------------------------------
       - name: Scan Signed Installer with VirusTotal
-        if: ${{ inputs.arm64 == false }}
         id: vt_installer
         uses: cssnr/virustotal-action@e2d194486614b28c3cf884f4bf13e39cac959b8d #v1.7.0
         continue-on-error: true # Don't kill the whole CI if VT is down
@@ -735,16 +665,14 @@ jobs:
           file_globs: ${{ env.FINAL_INSTALLER_PATH }}
 
       - name: Check Installer VT Status
-        if: ${{ inputs.arm64 == false && steps.vt_installer.outcome == 'failure' }}
+        if: ${{ steps.vt_installer.outcome == 'failure' }}
         run: echo "::warning::VirusTotal scan for installer failed or timed out."
 
       - name: Cool down API
-        if: ${{ inputs.arm64 == false }}
         run: Start-Sleep -s 15
         shell: pwsh
 
       - name: Scan Portable Package with VirusTotal
-        if: ${{ inputs.arm64 == false }}
         id: vt_portable
         uses: cssnr/virustotal-action@e2d194486614b28c3cf884f4bf13e39cac959b8d #v1.7.0
         continue-on-error: true # Don't kill the whole CI if VT is down
@@ -754,5 +682,5 @@ jobs:
           file_globs: servy-${{ env.VERSION }}-${{ env.ARCH }}-portable.7z
 
       - name: Check Portable VT Status
-        if: ${{ inputs.arm64 == false && steps.vt_portable.outcome == 'failure' }}
+        if: ${{ steps.vt_portable.outcome == 'failure' }}
         run: echo "::warning::VirusTotal scan for portable package failed or timed out."

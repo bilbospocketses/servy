@@ -3,7 +3,7 @@
 namespace Servy.Core.Data
 {
     /// <summary>
-    /// Defines a repository interface for managing <see cref="ServiceDto"/> records operations.
+    /// Defines a repository interface for managing <see cref="ServiceDto"/> records.
     /// </summary>
     public interface IServiceRepository
     {
@@ -110,12 +110,15 @@ namespace Servy.Core.Data
         /// Lightweight query to fetch only the Process ID (PID) for a given service.
         /// Used by high-frequency UI timers to check running state without allocating full DTOs.
         /// </summary>
-        Task<int?> GetServicePidAsync(string? serviceName, CancellationToken cancellationToken = default);
+        /// <param name="name">The unique name of the service to query.</param>
+        /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+        /// <returns>The PID of the running service, or <c>null</c> if not found or not running.</returns>
+        Task<int?> GetServicePidAsync(string? name, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Asynchronously retrieves a lightweight projection of a service's running state.
         /// </summary>
-        /// <param name="serviceName">The unique name of the service to query.</param>
+        /// <param name="name">The unique name of the service to query.</param>
         /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
         /// <returns>
         /// A <see cref="ServiceConsoleStateDto"/> containing the PID and active log paths; 
@@ -126,7 +129,7 @@ namespace Servy.Core.Data
         /// It fetches only the columns necessary to determine if a service has restarted 
         /// or changed its active log targets, minimizing database I/O and memory allocations.
         /// </remarks>
-        Task<ServiceConsoleStateDto?> GetServiceConsoleStateAsync(string? serviceName, CancellationToken cancellationToken = default);
+        Task<ServiceConsoleStateDto?> GetServiceConsoleStateAsync(string? name, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Retrieves all <see cref="ServiceDto"/> records in the repository.
@@ -144,14 +147,15 @@ namespace Servy.Core.Data
         /// <param name="decrypt">Optional flag to decrypt sensitive data.</param>
         /// <param name="cancellationToken">Optional cancellation token.</param>
         /// <returns>A collection of matching <see cref="ServiceDto"/> records.</returns>
-        Task<IEnumerable<ServiceDto>> SearchAsync(string keyword, bool decrypt = true, CancellationToken cancellationToken = default);
+        Task<IEnumerable<ServiceDto>> SearchAsync(string? keyword, bool decrypt = true, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Exports a <see cref="ServiceDto"/> to an XML string.
         /// </summary>
         /// <param name="name">The name of the service to export.</param>
         /// <param name="cancellationToken">Optional cancellation token.</param>
-        /// <returns>An XML string representing the service.</returns>
+        /// <returns>An XML string representing the service, or <see cref="string.Empty"/> if
+        /// <paramref name="name"/> is null/whitespace or no matching service exists.</returns>
         Task<string> ExportXmlAsync(string? name, CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -167,7 +171,8 @@ namespace Servy.Core.Data
         /// </summary>
         /// <param name="name">The name of the service to export.</param>
         /// <param name="cancellationToken">Optional cancellation token.</param>
-        /// <returns>A JSON string representing the service.</returns>
+        /// <returns>A JSON string representing the service, or <see cref="string.Empty"/> if
+        /// <paramref name="name"/> is null/whitespace or no matching service exists.</returns>
         Task<string> ExportJsonAsync(string? name, CancellationToken cancellationToken = default);
 
         /// <summary>

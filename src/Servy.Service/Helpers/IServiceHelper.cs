@@ -39,13 +39,13 @@ namespace Servy.Service.Helpers
         /// Records the full initialization context, including raw command-line arguments and resolved 
         /// <see cref="StartOptions"/>, to the diagnostic log and Windows Event Log.
         /// </summary>
-        /// <param name="logger">
-        /// The scoped logger instance used for output. If <see langword="null"/>, diagnostic 
-        /// information will not be recorded.
-        /// </param>
         /// <param name="options">
         /// The hydrated configuration object containing the executable paths, timeouts, 
         /// and environment variables.
+        /// </param>
+        /// <param name="logger">
+        /// The scoped logger instance used for output. If <see langword="null"/>, diagnostic 
+        /// information will not be recorded.
         /// </param>
         /// <remarks>
         /// <para>
@@ -59,7 +59,7 @@ namespace Servy.Service.Helpers
         /// plaintext exposure in log files.
         /// </para>
         /// </remarks>
-        void LogStartupArguments(IServyLogger? logger, StartOptions options);
+        void LogStartupArguments(StartOptions options, IServyLogger? logger);
 
         /// <summary>
         /// Performs a comprehensive validation of the startup options and logs the results.
@@ -81,7 +81,7 @@ namespace Servy.Service.Helpers
         /// </summary>
         /// <param name="options">The startup options containing the working directory to validate.</param>
         /// <param name="logger">The logger to write warnings to.</param>
-        void EnsureValidWorkingDirectory(StartOptions options, IServyLogger logger);
+        void EnsureValidWorkingDirectory(StartOptions options, IServyLogger? logger);
 
         /// <summary>
         /// Attempts to restart the given process by:
@@ -107,29 +107,29 @@ namespace Servy.Service.Helpers
             string realArgs,
             string workingDir,
             List<EnvironmentVariable> environmentVariables,
-            IServyLogger logger,
+            IServyLogger? logger,
             int stopTimeoutMs,
             CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Attempts to restart the Windows service associated with the current process.
         /// </summary>
-        /// <param name="logger">Loggers.</param>
+        /// <param name="logger">The logger instance used to report progress and errors.</param>
         /// <param name="serviceName">The name of the Windows service to restart.</param>
         /// <remarks>
         /// This should be used when the service is registered with the Service Control Manager.
         /// </remarks>
-        void RestartService(IServyLogger logger, string serviceName);
+        void RestartService(string serviceName, IServyLogger? logger);
 
         /// <summary>
         /// Restarts the computer.
         /// </summary>
-        /// <param name="logger">Loggers.</param>
+        /// <param name="logger">The logger instance used to report progress and errors.</param>
         /// <remarks>
         /// This operation requires appropriate privileges and will cause a system reboot.
         /// Use with extreme caution.
         /// </remarks>
-        void RestartComputer(IServyLogger logger);
+        void RestartComputer(IServyLogger? logger);
 
         /// <summary>
         /// Informs the Service Control Manager (SCM) that the service needs additional time to start,

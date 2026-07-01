@@ -249,8 +249,8 @@ function Format-SecureLogMessage {
   $patternSingle = '(?i)(--(?:' + $fieldsRegex + ')[=\s]+)''[^'']*'''
   $Text = [regex]::Replace($Text, $patternSingle, '$1''***''')
 
-  # 3. Unquoted positional values (using negative lookahead to prevent matching quote boundaries)
-  # FIX FOR #1992: Consume multi-word segments until the next '--' parameter switch block or EOL sequence.
+  # 3. Unquoted positional values (using negative lookahead to prevent matching quote boundaries).
+  # Consume multi-word segments until the next '--' parameter switch block or EOL.
   $patternUnquoted = '(?i)(--(?:' + $fieldsRegex + ')[=\s]+)(?![''"])(?:(?!\s+--|$).)+'
   $Text = [regex]::Replace($Text, $patternUnquoted, '$1"***"')
 
@@ -292,8 +292,8 @@ function Invoke-ServyCli {
 
         Compatible with PowerShell 2.0 and later.
 
-    .EXAMPLE
-        Invoke-ServyCli "start" @("--name=MyService") $false "Failed to start service"
+     .EXAMPLE
+        Invoke-ServyCli -Command "start" -Arguments @("--name=MyService") -ErrorContext "Failed to start service"
 
   #>
   [CmdletBinding()]
@@ -465,9 +465,9 @@ function Invoke-ServyCli {
       }
 
       if ($killed) {
-        throw "$($ErrorContext): Operation timed out after $($script:ServyTimeoutSeconds) seconds and was terminated."
+          throw "Operation timed out after $($script:ServyTimeoutSeconds) seconds and was terminated."
       } else {
-        throw "$($ErrorContext): Operation timed out after $($script:ServyTimeoutSeconds) seconds. WARNING: Failed to terminate the process (PID: $($process.Id)) - it may still be running."
+          throw "Operation timed out after $($script:ServyTimeoutSeconds) seconds. WARNING: Failed to terminate the process (PID: $($process.Id)) - it may still be running."
       }
     } else {
       # CRITICAL: Since the process is confirmed dead, a parameterless WaitForExit() 
@@ -527,9 +527,11 @@ function Invoke-ServyCli {
     # CRITICAL: Clean up events gracefully
     if ($outEvent) {
       Unregister-Event -SourceIdentifier $outEvent.Name -ErrorAction SilentlyContinue
+      Remove-Job -Id $outEvent.Id -Force -ErrorAction SilentlyContinue
     }
     if ($errorEvent) {
       Unregister-Event -SourceIdentifier $errorEvent.Name -ErrorAction SilentlyContinue
+      Remove-Job -Id $errorEvent.Id -Force -ErrorAction SilentlyContinue
     }
     
     if ($null -ne $process) {
@@ -745,7 +747,7 @@ function Install-ServyService {
         recovery actions, environment variables, dependencies, service account credentials,
         and optional pre-launch and post-launch executables.
 
-        The Post-launch executable operates in a fire-and-forget mode , meaning it does not support 
+        The Post-launch executable operates in a fire-and-forget mode, meaning it does not support 
         the full range of configuration options such as stdout/stderr redirection or retry attempts 
         that are available for the Pre-launch executable.
 
@@ -975,25 +977,27 @@ function Install-ServyService {
     # Basic Information
     [Parameter(Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
+    [ValidateLength(1, 256)]
     [string] $Name,
 
     [ValidateNotNullOrEmpty()]
     [ValidateLength(1, 256)]
     [string] $DisplayName,
 
+    [ValidateLength(0, 8192)]
     [string] $Description,
 
     # Process Configuration
     [Parameter(Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
-    [ValidateScript({ 
-        if (Test-Path $_ -PathType Leaf) { $true } 
-        else { throw "Executable not found: $_" } 
+    [ValidateScript({
+        if (Test-Path ([Environment]::ExpandEnvironmentVariables($_)) -PathType Leaf) { $true }
+        else { throw "Executable not found: $_" }
       })]
     [string] $Path,
 
     [ValidateScript({ 
-        if (Test-Path $_ -PathType Container) { $true } 
+        if (Test-Path ([Environment]::ExpandEnvironmentVariables($_)) -PathType Container) { $true }
         else { throw "Startup directory not found: $_" } 
       })]
     [string] $StartupDir,
@@ -1069,13 +1073,13 @@ function Install-ServyService {
     [int] $MaxRestartAttempts,
 
     [ValidateScript({ 
-        if (Test-Path $_ -PathType Leaf) { $true } 
+        if (Test-Path ([Environment]::ExpandEnvironmentVariables($_)) -PathType Leaf) { $true }
         else { throw "Failure program executable not found: $_" } 
       })]
     [string] $FailureProgramPath,
 
     [ValidateScript({ 
-        if (Test-Path $_ -PathType Container) { $true } 
+        if (Test-Path ([Environment]::ExpandEnvironmentVariables($_)) -PathType Container) { $true }
         else { throw "Failure program startup directory not found: $_" } 
       })]
     [string] $FailureProgramStartupDir,
@@ -1103,13 +1107,13 @@ function Install-ServyService {
 
     # Pre-launch
     [ValidateScript({ 
-        if (Test-Path $_ -PathType Leaf) { $true } 
+        if (Test-Path ([Environment]::ExpandEnvironmentVariables($_)) -PathType Leaf) { $true }
         else { throw "Pre-launch executable not found: $_" } 
       })]
     [string] $PreLaunchPath,
 
     [ValidateScript({ 
-        if (Test-Path $_ -PathType Container) { $true } 
+        if (Test-Path ([Environment]::ExpandEnvironmentVariables($_)) -PathType Container) { $true }
         else { throw "Pre-launch startup directory not found: $_" } 
       })]
     [string] $PreLaunchStartupDir,
@@ -1145,13 +1149,13 @@ function Install-ServyService {
 
     # Post-launch
     [ValidateScript({ 
-        if (Test-Path $_ -PathType Leaf) { $true } 
+        if (Test-Path ([Environment]::ExpandEnvironmentVariables($_)) -PathType Leaf) { $true }
         else { throw "Post-launch executable not found: $_" } 
       })]
     [string] $PostLaunchPath,
 
     [ValidateScript({ 
-        if (Test-Path $_ -PathType Container) { $true } 
+        if (Test-Path ([Environment]::ExpandEnvironmentVariables($_)) -PathType Container) { $true }
         else { throw "Post-launch startup directory not found: $_" } 
       })]
     [string] $PostLaunchStartupDir,
@@ -1164,13 +1168,13 @@ function Install-ServyService {
 
     # Pre-stop
     [ValidateScript({ 
-        if (Test-Path $_ -PathType Leaf) { $true } 
+        if (Test-Path ([Environment]::ExpandEnvironmentVariables($_)) -PathType Leaf) { $true }
         else { throw "Pre-stop executable not found: $_" } 
       })]
     [string] $PreStopPath,
 
     [ValidateScript({ 
-        if (Test-Path $_ -PathType Container) { $true } 
+        if (Test-Path ([Environment]::ExpandEnvironmentVariables($_)) -PathType Container) { $true }
         else { throw "Pre-stop startup directory not found: $_" } 
       })]
     [string] $PreStopStartupDir,
@@ -1185,13 +1189,13 @@ function Install-ServyService {
 
     # Post-stop
     [ValidateScript({ 
-        if (Test-Path $_ -PathType Leaf) { $true } 
+        if (Test-Path ([Environment]::ExpandEnvironmentVariables($_)) -PathType Leaf) { $true }
         else { throw "Post-stop executable not found: $_" } 
       })]
     [string] $PostStopPath,
 
     [ValidateScript({ 
-        if (Test-Path $_ -PathType Container) { $true } 
+        if (Test-Path ([Environment]::ExpandEnvironmentVariables($_)) -PathType Container) { $true }
         else { throw "Post-stop startup directory not found: $_" } 
       })]
     [string] $PostStopStartupDir,
@@ -1341,9 +1345,6 @@ function Install-ServyService {
               $secureEnv[$key] = $null
           }
       }
-      
-      # Help GC by clearing the ArrayList
-      $argsList = $null
   }
 }
 

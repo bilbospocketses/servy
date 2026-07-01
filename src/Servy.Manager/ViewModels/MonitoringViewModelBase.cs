@@ -47,12 +47,12 @@ namespace Servy.Manager.ViewModels
         /// </summary>
         private long _tickErrorCount = 0;
 
-        /// <summary>
-        /// Tracks whether the instance has already been disposed to prevent redundant cleanup.
-        /// </summary>
-        private bool _isDisposed;
-
         private string _pid = UiConstants.NotAvailable;
+
+        /// <summary>
+        /// Tracks whether a valid selection state loop context boundary had been verified on a previous evaluation frame step.
+        /// </summary>
+        protected bool _hadSelectedService;
 
         /// <summary>
         /// Gets or sets the Process ID string for display in the UI.
@@ -143,7 +143,7 @@ namespace Servy.Manager.ViewModels
                 // Increments atomically to maintain accurate tracking if multi-tab components ever fire concurrently.
                 long currentErrorCount = Interlocked.Increment(ref _tickErrorCount);
 
-                if (currentErrorCount % AppConfig.MonitoringTickErrorLogThrottlingInterval == 1)
+                if (currentErrorCount == 1 || currentErrorCount % AppConfig.MonitoringTickErrorLogThrottlingInterval == 0)
                 {
                     Logger.Warn($"Background monitoring tick failed in {GetType().Name} (Consecutive Failure Count: {currentErrorCount}).", ex);
                 }
@@ -164,10 +164,42 @@ namespace Servy.Manager.ViewModels
         }
 
         /// <summary>
-        /// When overridden in a derived class, performs the asynchronous monitoring and polling logic for the specific view.
+        /// Performs the centralized asynchronous monitoring execution loop logic, managing selection states 
+        /// and providing standardized hooks to derived context implementations.
         /// </summary>
-        /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-        protected abstract Task OnTickAsync();
+        /// <returns>A <see cref="Task"/> representing the asynchronous execution sequence operation.</returns>
+        protected async Task OnTickAsync()
+        {
+            var token = GetCurrentMonitoringToken();
+            var currentSelection = SelectedServiceItem;
+
+            if (currentSelection == null)
+            {
+                if (_hadSelectedService)
+                {
+                    ResetMonitoringState();
+                    _hadSelectedService = false;
+                    CopyPidCommand?.RaiseCanExecuteChanged();
+                }
+                return;
+            }
+            _hadSelectedService = true;
+
+            await ApplyTickAsync(currentSelection, token);
+        }
+
+        /// <summary>
+        /// When overridden in a derived class, resets view-specific components when active service selection is lost.
+        /// </summary>
+        protected abstract void ResetMonitoringState();
+
+        /// <summary>
+        /// When overridden in a derived class, executes the core domain lookup payload logic pass for an active monitoring slice frame step.
+        /// </summary>
+        /// <param name="selection">The current snapshot context instance handle of the evaluated target service model metadata.</param>
+        /// <param name="token">The coordination lifetime boundary cancellation token.</param>
+        /// <returns>A execution task tracker model wrapper.</returns>
+        protected abstract Task ApplyTickAsync(ServiceItemBase selection, CancellationToken token);
 
         /// <summary>
         /// Thread-safely cancels any active monitoring operations and creates a fresh <see cref="CancellationTokenSource"/>.
@@ -183,42 +215,40 @@ namespace Servy.Manager.ViewModels
         }
 
         /// <summary>
-        /// Starts the performance monitoring timer, initializes the cancellation context, 
+        /// Starts the monitoring timer, initializes the cancellation context, 
         /// and atomically sets the monitoring flag to active.
         /// </summary>
         public virtual void StartMonitoring()
         {
             ResetMonitoringCts();
+            Interlocked.Exchange(ref _tickErrorCount, 0); // start each session with a fresh throttle window
             Interlocked.Exchange(ref _isMonitoringFlag, 1);
             InitTimer();
             _timer?.Start();
         }
 
         /// <summary>
-        /// Stops the performance monitoring timer, cancels any in-flight background operations, 
+        /// Stops the monitoring timer, cancels any in-flight background operations, 
         /// and atomically sets the monitoring flag to stopped.
         /// </summary>
-        /// <param name="clearView">If <see langword="true"/>, signals the derived view model to clear its data to reflect a stopped state.</param>
-        public virtual void StopMonitoring(bool clearView = false)
+        public virtual void StopMonitoring()
         {
             _monitoringCts?.Cancel();
             Interlocked.Exchange(ref _isMonitoringFlag, 0);
             _timer?.Stop();
 
             // Unconditionally fire the stop extension point so derived models can run teardown logic
-            OnMonitoringStopped(clearView);
+            OnMonitoringStopped();
         }
 
         /// <summary>
         /// Invoked unconditionally by <see cref="StopMonitoring"/> to allow derived classes to execute 
         /// teardown logic, state persistence, or view clearing operations.
         /// </summary>
-        /// <param name="clearView">Indicates whether the caller explicitly requested the view model to clear its visual state.</param>
-        protected virtual void OnMonitoringStopped(bool clearView)
+        protected virtual void OnMonitoringStopped()
         {
-            // Base implementation is empty. Derived view models (e.g., PerformanceViewModel)
-            // should override this to handle shutdown tasks, such as flushing snapshots,
-            // disposing helpers, or clearing their observable collections if clearView is true.
+            // Base implementation is empty. Derived view models (e.g., ConsoleViewModel)
+            // should override this to handle shutdown tasks, such as flushing snapshots or disposing helpers.
         }
 
         /// <summary>
@@ -276,27 +306,28 @@ namespace Servy.Manager.ViewModels
         /// </param>
         protected override void Dispose(bool disposing)
         {
-            if (!_isDisposed)
+            if (Interlocked.Exchange(ref _isDisposed, 1) != 0)
             {
-                if (disposing)
-                {
-                    var oldMonitoringCts = Interlocked.Exchange(ref _monitoringCts, null);
-                    if (oldMonitoringCts != null)
-                    {
-                        Helpers.Helper.CancelAndDisposeSafely(oldMonitoringCts);
-                    }
+                return;
+            }
 
-                    if (_timer != null)
-                    {
-                        _timer.Stop();
-                        _timer.Tick -= OnTick; // CRITICAL: Prevents the Dispatcher leak
-                        _timer = null;
-                    }
+            if (disposing)
+            {
+                var oldMonitoringCts = Interlocked.Exchange(ref _monitoringCts, null);
+                if (oldMonitoringCts != null)
+                {
+                    Helpers.Helper.CancelAndDisposeSafely(oldMonitoringCts);
                 }
 
-                base.Dispose(disposing);
-                _isDisposed = true;
+                if (_timer != null)
+                {
+                    _timer.Stop();
+                    _timer.Tick -= OnTick; // CRITICAL: Prevents the Dispatcher leak
+                    _timer = null;
+                }
             }
+
+            base.Dispose(disposing);
         }
     }
 }

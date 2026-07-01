@@ -1,6 +1,8 @@
-﻿using Servy.CLI.Models;
+﻿using Servy.CLI.Helpers;
+using Servy.CLI.Models;
 using Servy.CLI.Resources;
 using Servy.Core.Common;
+using Servy.Core.Enums;
 using Servy.Core.Logging;
 using Servy.Core.Security;
 using Servy.Core.Services;
@@ -13,8 +15,25 @@ namespace Servy.CLI.Commands
     public abstract class BaseCommand
     {
         /// <summary>
+        /// Creates a pre-check delegate that verifies if a specific service is in a 'Disabled' state before proceeding with a command.
+        /// </summary>
+        /// <param name="serviceManager">The <see cref="IServiceManager"/> instance used to query current service startup configuration.</param>
+        /// <param name="serviceName">The unique name of the service to inspect.</param>
+        /// <returns>
+        /// A <see cref="Func{CancellationToken, CommandResult}"/> that, when executed, returns a failed <see cref="CommandResult"/> 
+        /// if the service is disabled; otherwise, returns <c>null</c> to signal the check passed.
+        /// </returns>
+        protected Func<CancellationToken, CommandResult?> NotDisabledPreCheck(IServiceManager serviceManager, string? serviceName) =>
+            token =>
+            {
+                var startupType = serviceManager.GetServiceStartupType(serviceName, cancellationToken: token);
+                return startupType == ServiceStartType.Disabled ? CommandResult.Fail(Strings.Msg_ServiceDisabledError) : null;
+            };
+
+        /// <summary>
         /// Executes a synchronous command action with common error handling.
-        /// Catches <see cref="UnauthorizedAccessException"/> and <see cref="Exception"/>, returning an appropriate contextual failure <see cref="CommandResult"/>.
+        /// Wraps the action with common error handling <see cref="OperationCanceledException"/> is translated to a clean cancellation result, 
+        /// and all other exceptions are routed through <see cref="HandleException"/> (which additionally special-cases <see cref="UnauthorizedAccessException"/>).
         /// </summary>
         /// <param name="commandName">Command name  (e.g., "install", "start").</param>
         /// <param name="action">A description of what is being attempted (e.g., "install service 'MyService'").</param>
@@ -39,7 +58,8 @@ namespace Servy.CLI.Commands
 
         /// <summary>
         /// Executes an asynchronous command action with common error handling.
-        /// Catches <see cref="UnauthorizedAccessException"/> and <see cref="Exception"/>, returning an appropriate contextual failure <see cref="CommandResult"/>.
+        /// Wraps the action with common error handling <see cref="OperationCanceledException"/> is translated to a clean cancellation result, 
+        /// and all other exceptions are routed through <see cref="HandleException"/> (which additionally special-cases <see cref="UnauthorizedAccessException"/>).
         /// </summary>
         /// <param name="commandName">Command name  (e.g., "install", "start").</param>
         /// <param name="action">A description of what is being attempted (e.g., "start service 'MyService'").</param>
@@ -67,6 +87,17 @@ namespace Servy.CLI.Commands
         /// <summary>
         /// Centralizes shared service management pre-flight validation, installation assertions, and operation logging pipelines.
         /// </summary>
+        /// <param name="commandName">The diagnostic name of the command executing the pipeline context used for logging scopes.</param>
+        /// <param name="action">The specific architectural intent verb used to construct detailed context error strings.</param>
+        /// <param name="suggestion">The informative remediation recommendation message provided to the end-user upon structural failures.</param>
+        /// <param name="serviceName">The system identity name of the target Windows service to evaluate.</param>
+        /// <param name="serviceManager">The operational management abstraction framework instance used to check installation topologies.</param>
+        /// <param name="operation">The core delegate wrapping the actual asynchronous SCM manipulation step.</param>
+        /// <param name="successMessageFormatter">A string manipulation delegate used to generate uniform success notification logs.</param>
+        /// <param name="preCheck">An optional delegate invocation layer that performs specialized pre-flight verification assertions.</param>
+        /// <param name="onSuccess">An optional asynchronous callback, awaited after the operation succeeds, used to synchronize repository state (e.g. DB upsert). Failures are caught and logged as a warning without failing the command.</param>
+        /// <param name="cancellationToken">A cancellation token tracking task state abandonment flags across runtime pools.</param>
+        /// <returns>An asynchronous task returning a definitive <see cref="CommandResult"/> representing pipeline execution outcomes.</returns>
         protected async Task<CommandResult> ExecuteServiceOperationAsync(
             string commandName,
             string action,
@@ -104,7 +135,16 @@ namespace Servy.CLI.Commands
                 {
                     if (onSuccess != null)
                     {
-                        await onSuccess(cancellationToken);
+                        try
+                        {
+                            await onSuccess(cancellationToken);
+                        }
+                        catch (Exception ex)
+                        {
+                            // Transform terminal execution fault into an informative best-effort warning descriptor.
+                            // Prevents database write-locks or directory IO bottlenecks from masking a successful SCM operation.
+                            Logger.Warn($"{commandName}: Service operation completed successfully, but post-success repository synchronization failed for '{serviceName}': {ex.Message}");
+                        }
                     }
 
                     var successMsg = successMessageFormatter(serviceName);
@@ -114,7 +154,7 @@ namespace Servy.CLI.Commands
                 else
                 {
                     Logger.Error(res.ErrorMessage);
-                    return CommandResult.Fail(res.ErrorMessage);
+                    return res.ToFailure();
                 }
             });
         }
@@ -122,6 +162,11 @@ namespace Servy.CLI.Commands
         /// <summary>
         /// Centralizes exception logging and CommandResult formatting for both synchronous and asynchronous command executions.
         /// </summary>
+        /// <param name="ex">The intercepted <see cref="Exception"/> instance requiring diagnostics processing and logging.</param>
+        /// <param name="commandName">The execution name of the calling command used to populate localized remediation placeholders.</param>
+        /// <param name="action">The core operational verb mapping to the attempted system action being protected.</param>
+        /// <param name="suggestion">An optional actionable remediation fallback suggestion provided to the user upon command failure.</param>
+        /// <returns>A formatted <see cref="CommandResult"/> encapsulating the failure context and localized error templates.</returns>
         private CommandResult HandleException(Exception ex, string commandName, string action, string suggestion)
         {
             if (ex is UnauthorizedAccessException)

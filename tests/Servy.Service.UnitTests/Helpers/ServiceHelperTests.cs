@@ -66,7 +66,7 @@ namespace Servy.Service.UnitTests.Helpers
             var mockLog = new Mock<IServyLogger>();
 
             // Act
-            _helper.LogStartupArguments(mockLog.Object, options);
+            _helper.LogStartupArguments(options, mockLog.Object);
 
             // Assert
             mockLog.Verify(l => l.Info(It.Is<string>(s =>
@@ -83,7 +83,7 @@ namespace Servy.Service.UnitTests.Helpers
             var mockLog = new Mock<IServyLogger>();
 
             // Act
-            _helper.LogStartupArguments(mockLog.Object, null!);
+            _helper.LogStartupArguments(null!, mockLog.Object);
 
             // Assert
             mockLog.Verify(l => l.Error("StartOptions is null.", It.IsAny<Exception>()), Times.Once);
@@ -116,7 +116,7 @@ namespace Servy.Service.UnitTests.Helpers
             };
 
             // Act
-            _helper.LogStartupArguments(mockLog.Object, options);
+            _helper.LogStartupArguments(options, mockLog.Object);
 
             // Assert
             // Local file logger static instance handles sensitive values via string mutations
@@ -168,7 +168,7 @@ namespace Servy.Service.UnitTests.Helpers
         {
             // Arrange
             var options = new StartOptions { WorkingDirectory = " ", ExecutablePath = null };
-            string system32 = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32");
+            string system32 = Environment.GetFolderPath(Environment.SpecialFolder.System);
             var mockLog = new Mock<IServyLogger>();
 
             // Act
@@ -407,7 +407,7 @@ namespace Servy.Service.UnitTests.Helpers
                 _mockProcessHelper.Setup(p => p.Start(It.IsAny<ProcessStartInfo>())).Returns((Process?)null);
 
                 // Act
-                _helper.RestartService(mockLog.Object, "TestService");
+                _helper.RestartService("TestService", mockLog.Object);
 
                 // Assert
                 mockLog.Verify(l => l.Error("Failed to start Servy.Restarter.exe.", It.IsAny<Exception>()), Times.Once);
@@ -444,22 +444,26 @@ namespace Servy.Service.UnitTests.Helpers
         {
             // Arrange
             var mockLog = new Mock<IServyLogger>();
-            var mockProcess = new Process();
 
-            _mockProcessHelper
-                .Setup(p => p.Start(It.Is<ProcessStartInfo>(psi =>
-                    psi.FileName.Contains("shutdown.exe") &&
-                    psi.Arguments == "/r /t 0 /f" &&
-                    psi.CreateNoWindow == true &&
-                    psi.UseShellExecute == false)))
-                .Returns(mockProcess);
+            // RUNTIME BOUNDARY: This is a concrete Process component instance rather than a Moq proxy.
+            // We encapsulate it in a using declaration to guarantee localized test runner disposal.
+            using (var dummyProcess = new Process())
+            {
+                _mockProcessHelper
+                    .Setup(p => p.Start(It.Is<ProcessStartInfo>(psi =>
+                        psi.FileName.Contains("shutdown.exe") &&
+                        psi.Arguments == "/r /t 0 /f" &&
+                        psi.CreateNoWindow == true &&
+                        psi.UseShellExecute == false)))
+                    .Returns(dummyProcess);
 
-            // Act
-            _helper.RestartComputer(mockLog.Object);
+                // Act
+                _helper.RestartComputer(mockLog.Object);
 
-            // Assert
-            _mockProcessHelper.Verify(p => p.Start(It.IsAny<ProcessStartInfo>()), Times.Once);
-            mockLog.Verify(l => l.Error(It.IsAny<string>(), It.IsAny<Exception>()), Times.Never);
+                // Assert
+                _mockProcessHelper.Verify(p => p.Start(It.IsAny<ProcessStartInfo>()), Times.Once);
+                mockLog.Verify(l => l.Error(It.IsAny<string>(), It.IsAny<Exception>()), Times.Never);
+            }
         }
 
         [Fact]
@@ -516,6 +520,126 @@ namespace Servy.Service.UnitTests.Helpers
             // Assert
             mockLog.Verify(l => l.Info(It.IsAny<string>(), It.IsAny<Exception>()), Times.Never);
             mockLog.Verify(l => l.Error(It.IsAny<string>(), It.IsAny<Exception>()), Times.Never);
+        }
+
+        #endregion
+
+        #region MaskRawArguments Tests
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void MaskRawArguments_NullOrWhitespace_ReturnsOriginalValue(string? input)
+        {
+            // Act
+            var result = ServiceHelper.MaskRawArguments(input);
+
+            // Assert
+            Assert.Equal(input, result);
+        }
+
+        [Fact]
+        public void MaskRawArguments_NoSensitivePatterns_ReturnsOriginalValue()
+        {
+            // Arrange
+            string input = "myapp.exe --port 8080 --host localhost";
+
+            // Act
+            var result = ServiceHelper.MaskRawArguments(input);
+
+            // Assert
+            Assert.Equal(input, result);
+        }
+
+        [Theory]
+        [InlineData("PASSWORD_HASH=hunter2", "PASSWORD_HASH=********")]
+        [InlineData("SECRET_DATA=sensitive_payload", "SECRET_DATA=********")]
+        [InlineData("PASSWORD_ENC: encrypted_blob", "PASSWORD_ENC: ********")]
+        [InlineData("myapp.exe --password_hash secret_value", "myapp.exe --password_hash ********")]
+        public void MaskRawArguments_WithCompositeUnderscoreSuffix_SuccessfullyMasksSecret(string input, string expected)
+        {
+            // Act
+            var result = ServiceHelper.MaskRawArguments(input);
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+        [Theory]
+        [InlineData("MY_PASSWORD=hunter2", "MY_PASSWORD=********")]
+        [InlineData("MY_PASSWORD_HASH=hunter2", "MY_PASSWORD_HASH=********")]
+        public void MaskRawArguments_WithPrefixAndSuffixModifiers_PreservesKeyContextAndMasksValue(string input, string expected)
+        {
+            // Act
+            var result = ServiceHelper.MaskRawArguments(input);
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+        [Theory]
+        [InlineData("API_KEY: my-secret-token", "API_KEY: ********")]
+        [InlineData("API_KEY/my-secret-token", "API_KEY/********")]
+        [InlineData("DATABASE_PASSWORD=secret", "DATABASE_PASSWORD=********")]
+        public void MaskRawArguments_BranchA_ExplicitSeparators_MasksCorrectly(string input, string expected)
+        {
+            // Act
+            var result = ServiceHelper.MaskRawArguments(input);
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+        [Theory]
+        [InlineData("myapp.exe --password mysecret", "myapp.exe --password ********")]
+        [InlineData("CONNSTR my server address password", "CONNSTR my server address ********")]
+        public void MaskRawArguments_BranchB_SpaceSeparators_MasksCorrectly(string input, string expected)
+        {
+            // Act
+            var result = ServiceHelper.MaskRawArguments(input);
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+        [Theory]
+        [InlineData("PASSWORD=\"secret value with spaces\"", "PASSWORD=********")]
+        [InlineData("PASSWORD='secret value with spaces'", "PASSWORD=********")]
+        public void MaskRawArguments_WithQuotedValues_MasksWholeQuotedString(string input, string expected)
+        {
+            // Act
+            var result = ServiceHelper.MaskRawArguments(input);
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+        [Fact]
+        public void MaskRawArguments_WithSubsequentCliFlags_StopsConsumingAtNextFlag()
+        {
+            // Arrange
+            string input = "myapp.exe --password mysecret --verbose";
+            string expected = "myapp.exe --password ******** --verbose";
+
+            // Act
+            var result = ServiceHelper.MaskRawArguments(input);
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+        [Fact]
+        public void MaskRawArguments_FalsePositiveBoundaryExemption_DoesNotMaskNonSensitiveExtensions()
+        {
+            // Arrange
+            string input = "PASSWORDLESS login attempt";
+
+            // Act
+            var result = ServiceHelper.MaskRawArguments(input);
+
+            // Assert
+            Assert.Equal(input, result); // Should remain completely untouched
         }
 
         #endregion

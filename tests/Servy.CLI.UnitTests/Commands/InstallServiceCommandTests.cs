@@ -2,7 +2,7 @@
 using Servy.CLI.Commands;
 using Servy.CLI.Models;
 using Servy.CLI.Resources;
-using Servy.CLI.Validators;
+using Servy.CLI.Validation;
 using Servy.Core.Common;
 using Servy.Core.Config;
 using Servy.Core.Services;
@@ -34,11 +34,10 @@ namespace Servy.CLI.UnitTests.Commands
 
             _mockValidator.Setup(v => v.Validate(options)).Returns(CommandResult.Ok(""));
 
-            // Updated to use the new options object signature
             _mockServiceManager.Setup(sm => sm.InstallServiceAsync(It.IsAny<InstallServiceOptions>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(OperationResult.Success());
 
-            // Create a dummy Servy.Service.exe for the test
+            // Create a dummy Servy.Service.CLI.exe for the test
             var wrapperExePath = AppConfig.GetServyCLIServicePath();
             Directory.CreateDirectory(Path.GetDirectoryName(wrapperExePath)!);
             File.WriteAllText(wrapperExePath, "dummy content");
@@ -86,7 +85,6 @@ namespace Servy.CLI.UnitTests.Commands
 
             _mockValidator.Setup(v => v.Validate(options)).Returns(CommandResult.Ok(""));
 
-            // Updated to use the new options object signature
             _mockServiceManager.Setup(sm => sm.InstallServiceAsync(It.IsAny<InstallServiceOptions>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(OperationResult.Failure("Failed to install service."));
 
@@ -121,7 +119,6 @@ namespace Servy.CLI.UnitTests.Commands
 
             _mockValidator.Setup(v => v.Validate(options)).Returns(CommandResult.Ok(""));
 
-            // Updated to use the new options object signature
             _mockServiceManager.Setup(sm => sm.InstallServiceAsync(It.IsAny<InstallServiceOptions>(), It.IsAny<CancellationToken>()))
                 .Throws<UnauthorizedAccessException>();
 
@@ -156,7 +153,6 @@ namespace Servy.CLI.UnitTests.Commands
 
             _mockValidator.Setup(v => v.Validate(options)).Returns(CommandResult.Ok(""));
 
-            // Updated to use the new options object signature
             _mockServiceManager.Setup(sm => sm.InstallServiceAsync(It.IsAny<InstallServiceOptions>(), It.IsAny<CancellationToken>()))
                 .Throws<Exception>();
 
@@ -171,7 +167,7 @@ namespace Servy.CLI.UnitTests.Commands
 
                 // Assert
                 Assert.False(result.Success);
-                Assert.Contains($"Failed to install service '{options.ServiceName}'", result.Message);
+                Assert.Contains(string.Format(Strings.Msg_InstallServiceAction, options.ServiceName), result.Message);
             }
             finally
             {

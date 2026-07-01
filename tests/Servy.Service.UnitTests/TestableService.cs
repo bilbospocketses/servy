@@ -4,7 +4,6 @@ using Servy.Core.EnvironmentVariables;
 using Servy.Core.Helpers;
 using Servy.Core.Logging;
 using Servy.Service.CommandLine;
-using Servy.Service.Helpers;
 using Servy.Service.ProcessManagement;
 using Servy.Service.StreamWriters;
 using Servy.Service.Timers;
@@ -18,9 +17,6 @@ namespace Servy.Service.UnitTests
 {
     public class TestableService : Service
     {
-        private Action<string, string, string, List<EnvironmentVariable>, CancellationToken>? _startProcessOverride;
-        private Action? _terminateChildProcessesOverride;
-
         /// <summary>
         /// Caches reflection bindings at class-load time. 
         /// Throws loudly and immediately if the underlying Service class is refactored 
@@ -64,10 +60,9 @@ namespace Servy.Service.UnitTests
             IProcessFactory processFactory,
             IPathValidator pathValidator,
             IServiceRepository serviceRepository,
-            IProcessHelper processHelper,
             IProcessKiller processKiller
             )
-            : base(serviceHelper, logger, streamWriterFactory, timerFactory, processFactory, pathValidator, serviceRepository, processHelper, processKiller)
+            : base(serviceHelper, logger, streamWriterFactory, timerFactory, processFactory, pathValidator, serviceRepository, processKiller)
         {
         }
 
@@ -118,16 +113,6 @@ namespace Servy.Service.UnitTests
         public void InvokeOnProcessExited(object? sender, EventArgs e) =>
             ServiceReflection.OnProcessExitedMethod.Invoke(this, new object?[] { sender, e });
 
-        public void OverrideStartProcess(Action<string, string, string, List<EnvironmentVariable>, CancellationToken> startProcess)
-        {
-            _startProcessOverride = startProcess;
-        }
-
-        public void OverrideTerminateChildProcesses(Action terminateChildProcesses)
-        {
-            _terminateChildProcessesOverride = terminateChildProcesses;
-        }
-
         // Expose child process for asserts
         public IProcessWrapper GetChildProcess() =>
             (IProcessWrapper)ServiceReflection.ChildProcessField.GetValue(this)!;
@@ -135,14 +120,7 @@ namespace Servy.Service.UnitTests
         // Expose StartProcess protected method and allow override logic
         public void InvokeStartProcess(string exePath, string args, string workingDir, List<EnvironmentVariable> environmentVariables, CancellationToken cancellationToken)
         {
-            if (_startProcessOverride != null)
-            {
-                _startProcessOverride(exePath, args, workingDir, environmentVariables, cancellationToken);
-            }
-            else
-            {
-                ServiceReflection.StartProcessMethod.Invoke(this, new object?[] { exePath, args, workingDir, environmentVariables, cancellationToken });
-            }
+            ServiceReflection.StartProcessMethod.Invoke(this, new object?[] { exePath, args, workingDir, environmentVariables, cancellationToken });
         }
 
         // Expose SafeKillProcess protected method

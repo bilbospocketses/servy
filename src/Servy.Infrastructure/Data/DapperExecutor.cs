@@ -40,7 +40,7 @@ namespace Servy.Infrastructure.Data
         /// </summary>
         /// <remarks>
         /// Because the enclosing executor operates statelessly by default, this nested class acts as an 
-        /// ownership container. It ties the lifestyle of the open database connection directly to the lifecycle 
+        /// ownership container. It ties the lifetime of the open database connection directly to the lifecycle 
         /// of the transaction itself, allowing standard <c>using</c> block usage without resource leaks.
         /// </remarks>
         private sealed class WrappedDbTransaction : IDbTransaction
@@ -80,8 +80,9 @@ namespace Servy.Infrastructure.Data
             public void Rollback() => Transaction.Rollback();
 
             /// <summary>
-            /// Atomically releases all managed unmanaged resources, disposing the native transaction 
-            /// before subsequently closing and disposing the tracked database connection.
+            /// Disposes the native transaction first, then closes and disposes the tracked
+            /// database connection, guaranteeing the connection is released even if the
+            /// transaction disposal throws.
             /// </summary>
             public void Dispose()
             {
@@ -328,20 +329,8 @@ namespace Servy.Infrastructure.Data
             var connection = _dbContext.CreateConnection();
             try
             {
-                if (connection is DbConnection dbConn)
-                {
-                    await dbConn.OpenAsync(cancellationToken);
-                }
-                else
-                {
-                    connection.Open();
-                }
-
-                // BeginTransactionAsync exists on DbConnection in .NET 6+; fall back to sync otherwise.
-                var transaction = (connection is DbConnection dbConn2)
-                    ? await dbConn2.BeginTransactionAsync(cancellationToken)
-                    : connection.BeginTransaction();
-
+                await connection.OpenAsync(cancellationToken);
+                var transaction = await connection.BeginTransactionAsync(cancellationToken);
                 return new WrappedDbTransaction(connection, transaction);
             }
             catch

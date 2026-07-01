@@ -33,14 +33,15 @@ namespace Servy.Core.Helpers
         /// A formatted string with a percent sign.
         /// Examples:
         /// <list type="bullet">
-        /// <item><description>0 -> "0%"</description></item>
-        /// <item><description>0.03 -> "0%"</description></item>
+        /// <item><description>0 -> "0.0%"</description></item>
+        /// <item><description>0.03 -> "0.0%"</description></item>
         /// <item><description>1 -> "1.0%"</description></item>
         /// <item><description>1.04 -> "1.0%"</description></item>
         /// <item><description>1.05 -> "1.1%"</description></item>
         /// <item><description>1.06 -> "1.1%"</description></item>
         /// <item><description>1.1 -> "1.1%"</description></item>
-        /// <item><description>1.49 -> "1.4%"</description></item>
+        /// <item><description>1.44 -> "1.4%"</description></item>
+        /// <item><description>1.49 -> "1.5%"</description></item>
         /// <item><description>1.51 -> "1.5%"</description></item>
         /// <item><description>1.57 -> "1.6%"</description></item>
         /// <item><description>1.636 -> "1.6%"</description></item>

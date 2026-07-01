@@ -18,9 +18,17 @@ namespace Servy.Core.Services
 {
     /// <summary>
     /// Provides methods to install, uninstall, start, stop, restart, and update Windows services.
-    /// Handles low-level Service Control Manager operations, configuration updates,
-    /// process monitoring, logging, and recovery options.
+    /// Acts as the central, unified orchestration engine for Windows Service lifecycle operations.
+    /// This hub deliberately aggregates low-level Windows Service Control Manager (SCM) interactions, 
+    /// Win32 P/Invoke boundaries, local system CRUD lifecycle management, parallel topology exploration, 
+    /// and service data synchronization mechanics.
     /// </summary>
+    /// <remarks>
+    /// Architectural Intent:
+    /// Leaving these domains combined ensures strict atomic synchronization between the operating system's native 
+    /// configuration states and the internal repository storage engine. This consolidation eliminates cross-process race 
+    /// conditions and transactional state drift during high-contention service installation, modification, and uninstallation.
+    /// </remarks>
     public class ServiceManager : IServiceManager
     {
         #region Private Fields
@@ -75,7 +83,7 @@ namespace Servy.Core.Services
         /// <param name="lpDependencies">A double null-terminated string of dependencies.</param>
         /// <param name="displayName">The display name to show in the Services console.</param>
         /// <exception cref="Win32Exception">Thrown when a native API call fails to open or change the service.</exception>
-        public void UpdateServiceConfig(
+        internal void UpdateServiceConfig(
             SafeScmHandle scmHandle,
             string serviceName,
             string description,
@@ -129,9 +137,9 @@ namespace Servy.Core.Services
         /// Sets the description text for a Windows service.
         /// </summary>
         /// <param name="serviceHandle">A valid handle to the target Windows service.</param>
-        /// <param name="description">The description string to assign.</param>
+        /// <param name="description">The description string to assign. A null value removes the description.</param>
         /// <exception cref="Win32Exception">Thrown if the native configuration change fails.</exception>
-        internal void SetServiceDescription(SafeServiceHandle serviceHandle, string description)
+        internal void SetServiceDescription(SafeServiceHandle serviceHandle, string? description)
         {
             IntPtr pDescription = IntPtr.Zero;
             try
@@ -164,7 +172,7 @@ namespace Servy.Core.Services
         /// <param name="serviceHandle">A valid handle to the target Windows service.</param>
         /// <param name="delayedAutostart"><c>true</c> to delay the automatic startup; otherwise <c>false</c>.</param>
         /// <returns><c>true</c> if the change was successful; otherwise, <c>false</c>.</returns>
-        private bool ChangeServiceConfig2(SafeServiceHandle serviceHandle, bool delayedAutostart)
+        private bool SetDelayedAutoStart(SafeServiceHandle serviceHandle, bool delayedAutostart)
         {
             var delayedInfo = new SERVICE_DELAYED_AUTO_START_INFO
             {
@@ -225,6 +233,55 @@ namespace Servy.Core.Services
             if (string.IsNullOrWhiteSpace(options.ServiceName)) throw new ArgumentException("Value is required.", nameof(options));
             if (string.IsNullOrWhiteSpace(options.WrapperExePath)) throw new ArgumentException("Value is required.", nameof(options));
             if (string.IsNullOrWhiteSpace(options.RealExePath)) throw new ArgumentException("Value is required.", nameof(options));
+
+            // HARDENING: Check database via UNICODE_NOCASE to intercept if this service or a linguistic 
+            // variation of it already exists before running native SCM queries.
+            var existingDbService = await _serviceRepository.GetByNameAsync(options.ServiceName, decrypt: true, cancellationToken);
+            bool isUpdateMode = existingDbService != null;
+
+            // Track if we successfully executed an aggressive purge of a casing layout duplicate
+            bool legacyDroppedFromDb = false;
+            ServiceDto? legacyBackupDto = null;
+
+            // If the database has a record under a different casing layout (e.g. 'serviceä' vs 'serviceÄ'),
+            // the Windows SCM will treat them as two entirely different entities. We must aggressively drop the old 
+            // casing layout registration from the OS before proceeding to avoid split-brain or orphaned processes.
+            if (isUpdateMode && !string.Equals(existingDbService!.Name, options.ServiceName, StringComparison.Ordinal))
+            {
+                Logger.Info($"Unicode name variance detected during update sequence ('{existingDbService.Name}' -> '{options.ServiceName}'). Executing full uninstallation sequence for the legacy casing variant from SCM and Database.");
+
+                if (IsServiceInstalled(existingDbService.Name))
+                {
+                    try
+                    {
+                        // To prevent permanent data loss if the subsequent installation steps fail,
+                        // we hold onto a deep copy or reference of the DTO before calling Uninstall.
+                        legacyBackupDto = existingDbService;
+
+                        var uninstallRes = await UninstallServiceAsync(existingDbService.Name, cancellationToken);
+                        if (!uninstallRes.IsSuccess)
+                        {
+                            string uninstError = $"Failed to unregister legacy casing variant '{legacyBackupDto.Name}' from SCM: {uninstallRes.ErrorMessage}";
+                            Logger.Error(uninstError);
+                            return OperationResult.Failure(uninstError);
+                        }
+
+                        // UninstallServiceAsync succeeded, meaning the DB record for legacyBackupDto.Name is now deleted!
+                        legacyDroppedFromDb = true;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        Logger.Info($"Installation cancelled while dropping legacy casing variant '{existingDbService.Name}'.");
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        string criticalError = $"Unexpected error occurred while trying to drop legacy service casing layout '{existingDbService.Name}'.";
+                        Logger.Error(criticalError, ex);
+                        return OperationResult.Failure($"{criticalError} Details: {ex.Message}");
+                    }
+                }
+            }
 
             string binPath = string.Join(" ",
                 Helper.Quote(options.WrapperExePath),
@@ -360,7 +417,7 @@ namespace Servy.Core.Services
                         {
                             totalWaitTime += options.PreStopTimeout;
                         }
-                        uint finalTimeoutMs = (uint)totalWaitTime * 1000;
+                        uint finalTimeoutMs = (uint)totalWaitTime * AppConfig.MillisecondsPerSecond;
 
                         if (serviceCreated)
                         {
@@ -375,19 +432,19 @@ namespace Servy.Core.Services
                                 string errorMsg = $"Failed to enable pre-shutdown for service '{options.ServiceName}' during installation. Rolling back creation.";
                                 Logger.Error(errorMsg);
                                 needsRollback = true;
-                                return OperationResult.Failure(errorMsg);
+                                throw new InvalidOperationException(errorMsg);
                             }
 
                             if (options.StartType == ServiceStartType.AutomaticDelayedStart)
                             {
-                                var delayedAutoStartConfigSuccess = ChangeServiceConfig2(serviceHandle!, true);
+                                var delayedAutoStartConfigSuccess = SetDelayedAutoStart(serviceHandle!, true);
 
                                 if (!delayedAutoStartConfigSuccess)
                                 {
                                     string errorMsg = $"Failed to set delayed auto-start for service '{options.ServiceName}' during installation. Rolling back creation.";
                                     Logger.Error(errorMsg);
                                     needsRollback = true;
-                                    return OperationResult.Failure(errorMsg);
+                                    throw new InvalidOperationException(errorMsg);
                                 }
                                 else
                                 {
@@ -424,7 +481,7 @@ namespace Servy.Core.Services
                                     {
                                         var err = _win32ErrorProvider.GetLastWin32Error();
                                         Logger.Error($"Failed to open service '{options.ServiceName}' for config update. Win32 error: {err}");
-                                        return OperationResult.Failure($"Failed to open service '{options.ServiceName}' for configuration update. Error code: {err}");
+                                        throw new Win32Exception(err, $"Failed to open service '{options.ServiceName}' for configuration update. Error code: {err}");
                                     }
 
                                     // 1. Update Pre-shutdown Timeout for existing service
@@ -440,12 +497,12 @@ namespace Servy.Core.Services
                                         // We explicitly reject the state run and notify that manual structural reconciliation is required.
                                         string errorMsg = $"CRITICAL STATE DRIFT: Failed to update pre-shutdown timeout for existing service '{options.ServiceName}'. Core properties were modified but advanced configurations failed. The Servy database remains un-updated. Run re-installation immediately to prevent shutdown data corruption.";
                                         Logger.Error(errorMsg);
-                                        return OperationResult.Failure(errorMsg);
+                                        throw new InvalidOperationException(errorMsg);
                                     }
 
                                     // 2. Update Delayed Auto-start
                                     var delayedAutostart = options.StartType == ServiceStartType.AutomaticDelayedStart;
-                                    var success = ChangeServiceConfig2(existingServiceHandle, delayedAutostart);
+                                    var success = SetDelayedAutoStart(existingServiceHandle, delayedAutostart);
 
                                     if (success)
                                     {
@@ -457,7 +514,7 @@ namespace Servy.Core.Services
                                         // We escalate the diagnostic error to alert operators that the system is now out of sync.
                                         string errorMsg = $"CRITICAL STATE DRIFT: Failed to set delayed auto-start for existing service '{options.ServiceName}'. SCM configuration is now in an inconsistent state and database synchronization was aborted. Please re-run the full installer context to repair.";
                                         Logger.Error(errorMsg);
-                                        return OperationResult.Failure(errorMsg);
+                                        throw new InvalidOperationException(errorMsg);
                                     }
                                 }
 
@@ -473,16 +530,16 @@ namespace Servy.Core.Services
 
                             string creationErrorMsg = $"Failed to create service '{options.ServiceName}'. Win32 error: {createServiceError}";
                             Logger.Error(creationErrorMsg);
-                            return OperationResult.Failure(creationErrorMsg);
+                            throw new Win32Exception(createServiceError, creationErrorMsg);
                         }
 
                         cancellationToken.ThrowIfCancellationRequested();
                         SetServiceDescription(serviceHandle!, options.Description);
                         await _serviceRepository.UpsertAsync(
-                            dto,
-                            preserveExistingRuntimeState: false,
-                            preserveExistingCredentials: false,
-                            cancellationToken); // New service: update runtime state in db (PID, ActiveStdoutPath, ActiveStderrPath)
+                                             dto,
+                                             preserveExistingRuntimeState: false,
+                                             preserveExistingCredentials: false,
+                                             cancellationToken); // New service: update runtime state in db (PID, ActiveStdoutPath, ActiveStderrPath)
 
                         Logger.Info($"Service '{options.ServiceName}' installed successfully.");
                         return OperationResult.Success();
@@ -523,18 +580,51 @@ namespace Servy.Core.Services
             catch (OperationCanceledException)
             {
                 Logger.Info($"Installation of '{options.ServiceName}' was cancelled by the user.");
+                await ExecuteDatabaseRecoveryAsync(legacyDroppedFromDb, legacyBackupDto);
                 throw;
             }
             catch (Exception ex)
             {
                 Logger.Error($"Error installing service '{options.ServiceName}'.", ex);
-                throw;
+                await ExecuteDatabaseRecoveryAsync(legacyDroppedFromDb, legacyBackupDto);
+                return OperationResult.Failure($"Error installing service '{options.ServiceName}': {ex.Message}");
             }
             finally
             {
-                if (scmHandle != null)
+                scmHandle?.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Orchestrates an isolated database rollback sequence to restore state tracking for a legacy 
+        /// service variant if the subsequent installation pipeline fails or is canceled.
+        /// </summary>
+        /// <param name="legacyDroppedFromDb">A flag indicating whether the legacy service record was successfully removed during validation hardening.</param>
+        /// <param name="legacyBackupDto">The original service data tracking context captured before structural execution began.</param>
+        /// <returns>A <see cref="Task"/> representing the asynchronous database recovery operations.</returns>
+        /// <remarks>
+        /// This routine enforces data tracking atomicity across case-renaming scenarios. It executes under 
+        /// <see cref="CancellationToken.None"/> to ensure that recovery routines finish processing even 
+        /// if the primary installation process was canceled via user interaction.
+        /// </remarks>
+        private async Task ExecuteDatabaseRecoveryAsync(bool legacyDroppedFromDb, ServiceDto? legacyBackupDto)
+        {
+            if (legacyDroppedFromDb && legacyBackupDto != null)
+            {
+                try
                 {
-                    scmHandle.Dispose();
+                    Logger.Warn($"Installation pipeline failed after dropping legacy Unicode layout. Restoring database state tracking for '{legacyBackupDto.Name}'.");
+
+                    // Re-hydrate the original DTO back into the system repository
+                    await _serviceRepository.UpsertAsync(
+                        legacyBackupDto,
+                        preserveExistingRuntimeState: false,
+                        preserveExistingCredentials: false,
+                        CancellationToken.None); // Use None to ensure recovery runs even during user cancellations
+                }
+                catch (Exception dbRecoveryEx)
+                {
+                    Logger.Error($"CRITICAL: DB Recovery failed while restoring state tracking for '{legacyBackupDto.Name}'. Database is now out of sync.", dbRecoveryEx);
                 }
             }
         }
@@ -557,7 +647,7 @@ namespace Servy.Core.Services
                     return OperationResult.Failure("Failed to open Service Control Manager.");
                 }
 
-                // Added SERVICE_CHANGE_CONFIG to permit the start-type modification.
+                // SERVICE_CHANGE_CONFIG to permit the start-type modification.
                 uint uninstallRights = SERVICE_STOP | SERVICE_QUERY_STATUS | SERVICE_DELETE | SERVICE_CHANGE_CONFIG;
 
                 using (var serviceHandle = _windowsServiceApi.OpenService(scmHandle, serviceName, uninstallRights))
@@ -668,7 +758,7 @@ namespace Servy.Core.Services
         {
             if (_serviceRepository == null)
                 throw new InvalidOperationException("Service repository is not initialized. Cannot start service without a repository.");
-            if (string.IsNullOrWhiteSpace(serviceName)) 
+            if (string.IsNullOrWhiteSpace(serviceName))
                 throw new ArgumentException("service name cannot be null or whitespace.", nameof(serviceName));
 
             int timeout = 0;
@@ -765,7 +855,7 @@ namespace Servy.Core.Services
                     sc.Stop();
 
                     // Replace blocking WaitForStatus with an async polling loop to respect cancellation
-                    var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                    var stopwatch = Stopwatch.StartNew();
                     var timeoutSpan = TimeSpan.FromSeconds(timeout);
 
                     while (sc.Status != ServiceControllerStatus.Stopped)
@@ -833,16 +923,31 @@ namespace Servy.Core.Services
         }
 
         /// <inheritdoc />
-        public ServiceControllerStatus GetServiceStatus(string? serviceName, CancellationToken cancellationToken = default(CancellationToken))
+        public ServiceControllerStatus? GetServiceStatus(string? serviceName, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(serviceName))
                 throw new ArgumentException("Service name cannot be null or whitespace.", nameof(serviceName));
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            using (var sc = _controllerFactory(serviceName))
+            try
             {
-                return sc.Status;
+                using (var sc = _controllerFactory(serviceName))
+                {
+                    return sc.Status;
+                }
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Catching InvalidOperationException handles cases where the service does not exist 
+                // or was uninstalled mid-flight, safely satisfying the nullable fallback contract.
+                Logger.Debug($"Service '{serviceName}' was not found or was removed during status retrieval: {ex.Message}");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Unexpected error retrieving status for service '{serviceName}'.", ex);
+                return null;
             }
         }
 
@@ -859,7 +964,7 @@ namespace Servy.Core.Services
         }
 
         /// <inheritdoc />
-        public ServiceStartType? GetServiceStartupType(string? serviceName, CancellationToken cancellationToken = default(CancellationToken))
+        public ServiceStartType GetServiceStartupType(string? serviceName, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(serviceName))
                 throw new ArgumentException("Service name cannot be null or whitespace.", nameof(serviceName));
@@ -919,7 +1024,7 @@ namespace Servy.Core.Services
         }
 
         /// <inheritdoc/>
-        public List<ServiceInfo> GetAllServices(CancellationToken cancellationToken = default(CancellationToken))
+        public List<ServiceInfo> GetAllServices(CancellationToken cancellationToken = default)
         {
             var results = new ConcurrentBag<ServiceInfo>();
 
@@ -937,6 +1042,7 @@ namespace Servy.Core.Services
                         throw new Win32Exception(_win32ErrorProvider.GetLastWin32Error(), "Failed to open Service Control Manager.");
                     }
 
+
                     Parallel.ForEach(services, new ParallelOptions
                     {
                         CancellationToken = cancellationToken,
@@ -947,8 +1053,7 @@ namespace Servy.Core.Services
                         // We do not wrap this body in a try/finally for service.Dispose() anymore,
                         // as it is handled by the outer block to prevent cancellation leaks.
 
-                        // This lets Parallel.ForEach surface a single OperationCanceledException
-                        // to the caller and guarantees the caller never sees a partial-but-successful
+                        // Check before any work so cancellation surfaces as OperationCanceledException, not a partial result set.
                         cancellationToken.ThrowIfCancellationRequested();
 
                         ServiceInfo info = new ServiceInfo
@@ -956,7 +1061,7 @@ namespace Servy.Core.Services
                             Name = service.ServiceName,
                             Status = MapStatus(service.Status),
                             StartupType = MapStartupType(service),
-                            LogOnAs = null,
+                            LogOnAs = string.Empty,
                             Description = string.Empty,
                         };
 
@@ -966,11 +1071,9 @@ namespace Servy.Core.Services
                         {
                             try
                             {
-                                // 1. Set the timeout inside the guarded block
+                                // Set the timeout inside the guarded block
                                 cts.CancelAfter(AppConfig.PopulateNativeDetailsTimeoutMs);
 
-                                // 2. Native details are gathered synchronously on the parallel worker
-                                // PopulateNativeDetails MUST be updated to accept and check this token.
                                 PopulateNativeDetails(scmHandle, info, cts.Token);
                             }
                             catch (OperationCanceledException)
@@ -992,8 +1095,7 @@ namespace Servy.Core.Services
                 }
                 finally
                 {
-                    // Handle is disposed directly. The dead task-tracking logic is removed 
-                    // to reflect the synchronous nature of the native SCM queries.
+                    // Native SCM queries are synchronous; nothing outlives the loop, so the handle can be disposed here.
                     scmHandle?.Dispose();
                 }
             }
@@ -1036,10 +1138,11 @@ namespace Servy.Core.Services
         /// </summary>
         /// <param name="scmHandle">An active handle to the Service Control Manager.</param>
         /// <param name="info">The service information object to populate.</param>
-        private void PopulateNativeDetails(SafeScmHandle scmHandle, ServiceInfo info, CancellationToken ct)
+        /// <param name="cancellationToken">A cancellation token (carries the per-service native-query timeout); checked before each discrete native call.</param>
+        private void PopulateNativeDetails(SafeScmHandle scmHandle, ServiceInfo info, CancellationToken cancellationToken)
         {
             // 1. Pre-flight check
-            ct.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
 
             if (string.IsNullOrWhiteSpace(info.Name))
                 throw new ArgumentException("Service name is empty!");
@@ -1050,16 +1153,17 @@ namespace Servy.Core.Services
                 if (svcHandle.IsInvalid) return;
 
                 // 3. Check token before each discrete native query.
-                // If the 2000ms timeout or user cancellation hits during GetServiceUser, 
-                // we skip the subsequent calls to keep the loop moving.
+                // If the per-service native-query timeout (AppConfig.PopulateNativeDetailsTimeoutMs)
+                // or user cancellation hits during GetServiceUser, we skip the subsequent
+                // calls to keep the loop moving.
 
-                ct.ThrowIfCancellationRequested();
+                cancellationToken.ThrowIfCancellationRequested();
                 info.LogOnAs = GetServiceUser(svcHandle) ?? ServiceAccounts.LocalSystem;  // confirmed null = LocalSystem (Win32 default)
 
-                ct.ThrowIfCancellationRequested();
+                cancellationToken.ThrowIfCancellationRequested();
                 info.Description = GetServiceDescription(svcHandle) ?? string.Empty;
 
-                ct.ThrowIfCancellationRequested();
+                cancellationToken.ThrowIfCancellationRequested();
                 if (info.StartupType == ServiceStartType.Automatic && IsDelayedStart(svcHandle))
                 {
                     info.StartupType = ServiceStartType.AutomaticDelayedStart;
@@ -1116,7 +1220,7 @@ namespace Servy.Core.Services
         /// </summary>
         /// <param name="nativeStatus">The system status to map.</param>
         /// <returns>An internal <see cref="Enums.ServiceStatus"/> representation.</returns>
-        private Enums.ServiceStatus MapStatus(ServiceControllerStatus nativeStatus)
+        private static ServiceStatus MapStatus(ServiceControllerStatus nativeStatus)
         {
             switch (nativeStatus)
             {
@@ -1173,10 +1277,8 @@ namespace Servy.Core.Services
         /// <exception cref="Win32Exception">Thrown when the Win32 subsystem encounters an infrastructural or security impediment.</exception>
         private string? GetServiceDescription(SafeServiceHandle svcHandle)
         {
-            int bytesNeeded = 0;
-
             // Invoke Pass 1: Size-Probe using an intentional null destination pointer
-            _windowsServiceApi.QueryServiceConfig2(svcHandle, SERVICE_CONFIG_DESCRIPTION, IntPtr.Zero, 0, ref bytesNeeded);
+            _windowsServiceApi.QueryServiceConfig2(svcHandle, SERVICE_CONFIG_DESCRIPTION, IntPtr.Zero, 0, out int bytesNeeded);
 
             // Intercept the native error state immediately before any subsequent C# evaluations occur
             int errorCode = _win32ErrorProvider.GetLastWin32Error();
@@ -1196,7 +1298,7 @@ namespace Servy.Core.Services
             IntPtr ptr = Marshal.AllocHGlobal(bytesNeeded);
             try
             {
-                if (_windowsServiceApi.QueryServiceConfig2(svcHandle, SERVICE_CONFIG_DESCRIPTION, ptr, bytesNeeded, ref bytesNeeded))
+                if (_windowsServiceApi.QueryServiceConfig2(svcHandle, SERVICE_CONFIG_DESCRIPTION, ptr, bytesNeeded, out int pcbBytesNeeded))
                 {
                     var descStruct = Marshal.PtrToStructure<SERVICE_DESCRIPTION>(ptr);
                     return Marshal.PtrToStringAuto(descStruct.lpDescription);
@@ -1219,7 +1321,6 @@ namespace Servy.Core.Services
         private bool IsDelayedStart(SafeServiceHandle svcHandle)
         {
             var info = new SERVICE_DELAYED_AUTO_START_INFO();
-            int bytesNeeded = 0;
             int structSize = Marshal.SizeOf(typeof(SERVICE_DELAYED_AUTO_START_INFO));
 
             return _windowsServiceApi.QueryServiceConfig2(
@@ -1227,7 +1328,7 @@ namespace Servy.Core.Services
                 SERVICE_CONFIG_DELAYED_AUTO_START_INFO,
                 ref info,
                 structSize,
-                ref bytesNeeded) && info.fDelayedAutostart;
+                out int bytesNeeded) && info.fDelayedAutostart;
         }
 
         /// <summary>

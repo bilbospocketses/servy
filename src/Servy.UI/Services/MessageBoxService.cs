@@ -13,11 +13,6 @@ namespace Servy.UI.Services
         private readonly IUiDispatcher _dispatcher;
 
         /// <summary>
-        /// A hook for integration tests to prevent blocking modal dialogs in headless CI environments.
-        /// </summary>
-        public static bool IsHeadlessMode { get; set; }
-
-        /// <summary>
         /// Initializes a new instance of the <see cref="MessageBoxService"/> class.
         /// </summary>
         /// <param name="dispatcher">
@@ -29,56 +24,46 @@ namespace Servy.UI.Services
             _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         }
 
-        ///<inheritdoc/>
-        public async Task ShowInfoAsync(string? message, string caption)
+        /// <summary>
+        /// Centralized unmanaged UI helper to abstract headless checks and handle cross-thread marshaling boundaries cleanly.
+        /// </summary>
+        private Task ShowAsync(string? message, string caption, MessageBoxImage image, string headlessTag)
         {
-            if (IsHeadlessMode)
+            if (UiHeadless.IsEnabled)
             {
-                Console.WriteLine($"[HEADLESS INFO] {caption}: {message}");
-                return;
+                Console.WriteLine($"[HEADLESS {headlessTag}] {caption}: {message}");
+                return Task.CompletedTask;
             }
 
             // Use InvokeAsync to ensure the task doesn't complete until the dialog is closed.
-            await _dispatcher.InvokeAsync(() =>
+            return _dispatcher.InvokeAsync(() =>
             {
-                MessageBox.Show(message, caption, MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(message, caption, MessageBoxButton.OK, image);
             });
         }
 
-        ///<inheritdoc/>
-        public async Task ShowWarningAsync(string? message, string caption)
+        /// <inheritdoc/>
+        public Task ShowInfoAsync(string? message, string caption)
         {
-            if (IsHeadlessMode)
-            {
-                Console.WriteLine($"[HEADLESS WARNING] {caption}: {message}");
-                return;
-            }
-
-            await _dispatcher.InvokeAsync(() =>
-            {
-                MessageBox.Show(message, caption, MessageBoxButton.OK, MessageBoxImage.Warning);
-            });
+            return ShowAsync(message, caption, MessageBoxImage.Information, "INFO");
         }
 
-        ///<inheritdoc/>
-        public async Task ShowErrorAsync(string? message, string caption)
+        /// <inheritdoc/>
+        public Task ShowWarningAsync(string? message, string caption)
         {
-            if (IsHeadlessMode)
-            {
-                Console.WriteLine($"[HEADLESS ERROR] {caption}: {message}");
-                return;
-            }
-
-            await _dispatcher.InvokeAsync(() =>
-            {
-                MessageBox.Show(message, caption, MessageBoxButton.OK, MessageBoxImage.Error);
-            });
+            return ShowAsync(message, caption, MessageBoxImage.Warning, "WARNING");
         }
 
-        ///<inheritdoc/>
+        /// <inheritdoc/>
+        public Task ShowErrorAsync(string? message, string caption)
+        {
+            return ShowAsync(message, caption, MessageBoxImage.Error, "ERROR");
+        }
+
+        /// <inheritdoc/>
         public async Task<bool> ShowConfirmAsync(string? message, string caption)
         {
-            if (IsHeadlessMode)
+            if (UiHeadless.IsEnabled)
             {
                 Console.WriteLine($"[HEADLESS CONFIRM] {caption}: {message} -> Auto-answering 'Yes'.");
                 return true; // Default to 'Yes' to allow happy-path CI flows

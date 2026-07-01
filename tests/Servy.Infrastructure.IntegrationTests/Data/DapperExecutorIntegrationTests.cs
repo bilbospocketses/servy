@@ -9,6 +9,7 @@ using System.Data.SQLite;
 
 namespace Servy.Infrastructure.IntegrationTests.Data
 {
+    [Collection("SequentialDatabaseTests")]
     public class DapperExecutorIntegrationTests : IDisposable
     {
         // Concrete test spy subclassing DbConnection to bypass Moq's non-virtual limitation
@@ -99,7 +100,6 @@ namespace Servy.Infrastructure.IntegrationTests.Data
             }
         }
 
-        // NESTED CLASS: Place inside your DapperExecutorIntegrationTests class block
         private class FlexibleDbConnectionStub : DbConnection
         {
             private readonly bool _forceSyncTransactionPath;
@@ -127,7 +127,7 @@ namespace Servy.Infrastructure.IntegrationTests.Data
             {
                 if (_forceSyncTransactionPath)
                 {
-                    // FIX: Hand execution flow back to the base framework layer.
+                    // Hand execution flow back to the base framework layer.
                     // The standard .NET base implementation routes directly down into 
                     // the synchronous BeginDbTransaction method below automatically.
                     return base.BeginDbTransactionAsync(isolationLevel, cancellationToken);
@@ -141,7 +141,7 @@ namespace Servy.Infrastructure.IntegrationTests.Data
             protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel)
             {
                 SyncTransactionWasCalled = true;
-                return new Mock<DbTransaction>().Object as DbTransaction ?? throw new InvalidOperationException();
+                return new Mock<DbTransaction>().Object;
             }
 
             public override void ChangeDatabase(string databaseName)
@@ -373,23 +373,57 @@ namespace Servy.Infrastructure.IntegrationTests.Data
         [Fact]
         public async Task BeginTransactionAsync_AllBranchesCovered()
         {
-            // Branch 1: Uses a DbConnection stub that explicitly forces the synchronous connection.BeginTransaction() fallback track
+            // ==========================================================================================
+            // Branch 1: Sync Fallback Path
+            // ------------------------------------------------------------------------------------------
+            // Uses a DbConnection stub that explicitly forces the synchronous connection.BeginTransaction() fallback track.
+            // ==========================================================================================
+            // Arrange
             var syncFallbackStub = new FlexibleDbConnectionStub(forceSyncTransactionPath: true);
             _mockDbContext.Setup(db => db.CreateConnection()).Returns(syncFallbackStub);
 
+            // Act
             using (var tx = await _executor.BeginTransactionAsync(CancellationToken.None))
             {
+                // Assert
                 Assert.NotNull(tx);
                 Assert.True(syncFallbackStub.SyncTransactionWasCalled, "The synchronous .BeginTransaction() fallback path was not executed.");
             }
 
-            // Branch 2: Uses the real SQLite connection object to test the high-performance async driver pipelines natively
-            _mockDbContext.Setup(db => db.CreateConnection()).Returns(() => new SQLiteConnection(_connectionString));
-            using (var tx2 = await _executor.BeginTransactionAsync(CancellationToken.None))
+            // ==========================================================================================
+            // Branch 2: Native Async Path
+            // ------------------------------------------------------------------------------------------
+            // Exercises the natively async-overridden pathway where the database provider handles async tasks 
+            // entirely in the unmanaged driver level without bouncing back onto synchronous fallback locks.
+            // ==========================================================================================
+            // Arrange
+            var nativeAsyncStub = new FlexibleDbConnectionStub(forceSyncTransactionPath: false);
+            _mockDbContext.Setup(db => db.CreateConnection()).Returns(nativeAsyncStub);
+
+            // Act
+            using (var txNativeAsync = await _executor.BeginTransactionAsync(CancellationToken.None))
             {
-                Assert.NotNull(tx2);
-                Assert.NotNull(tx2.Connection);
-                Assert.Equal(ConnectionState.Open, tx2.Connection.State);
+                // Assert
+                Assert.NotNull(txNativeAsync);
+                Assert.False(nativeAsyncStub.SyncTransactionWasCalled, "The native async path incorrectly fell back into a synchronous transaction thread lock.");
+            }
+
+            // ==========================================================================================
+            // Branch 3: Concrete Provider Check
+            // ------------------------------------------------------------------------------------------
+            // Uses the real SQLite connection object to test the high-performance operational layout 
+            // natively against a physical ADO.NET database engine driver configuration.
+            // ==========================================================================================
+            // Arrange
+            _mockDbContext.Setup(db => db.CreateConnection()).Returns(() => new SQLiteConnection(_connectionString));
+
+            // Act
+            using (var tx3 = await _executor.BeginTransactionAsync(CancellationToken.None))
+            {
+                // Assert
+                Assert.NotNull(tx3);
+                Assert.NotNull(tx3.Connection);
+                Assert.Equal(ConnectionState.Open, tx3.Connection.State);
             }
         }
 
@@ -402,8 +436,6 @@ namespace Servy.Infrastructure.IntegrationTests.Data
             // Act & Assert
             Assert.Throws<SQLiteException>(() =>
             {
-                _executor.ExecuteScalar<int>("SELECT COUNT(*) FROM TestServices;", param: null, transaction: null);
-
                 // Forcing retry execution by mocking connection state to return standard SQLITE_BUSY error codes
                 var busyMockConn = new Mock<DbConnection>();
                 busyMockConn.Setup(c => c.Open()).Callback(() =>
@@ -414,6 +446,7 @@ namespace Servy.Infrastructure.IntegrationTests.Data
                 _mockDbContext.Setup(db => db.CreateConnection()).Returns(busyMockConn.Object);
                 _executor.ExecuteScalar<int>("SELECT COUNT(*) FROM TestServices;");
             });
+            Assert.Equal(AppConfig.DbSyncMaxRetries, executedAttempts);
         }
 
         [Fact]

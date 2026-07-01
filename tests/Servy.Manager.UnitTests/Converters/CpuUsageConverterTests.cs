@@ -1,4 +1,5 @@
-﻿using Moq;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Moq;
 using Servy.Core.Helpers;
 using Servy.Manager.Converters;
 using Servy.UI.Constants;
@@ -7,35 +8,50 @@ using System.Windows.Data;
 
 namespace Servy.Manager.UnitTests.Converters
 {
+    [Collection("Ambient AppServices Dependent Tests")]
     public class CpuUsageConverterTests
     {
         private readonly Mock<IProcessHelper> _mockProcessHelper;
+        private readonly Mock<IProcessKiller> _mockProcessKiller;
 
         public CpuUsageConverterTests()
         {
             _mockProcessHelper = new Mock<IProcessHelper>();
-
-            // Note: In a real project, ensure App.Services is initialized with a ServiceProvider 
-            // that returns _mockProcessHelper.Object for IProcessHelper if testing runtime logic.
+            _mockProcessKiller = new Mock<IProcessKiller>();
         }
 
         [Fact]
         public void Convert_ValidDouble_ReturnsFormattedString()
         {
             // Arrange
-            var converter = new CpuUsageConverter();
-            double input = 1.25;
+            var originalProvider = App.Services;
+            var serviceCollection = new ServiceCollection();
 
-            // Updated expectation to match the actual rounding behavior (1.3%)
-            string expectedFormattedValue = "1.3%";
+            serviceCollection.AddSingleton(_mockProcessKiller.Object);
+            serviceCollection.AddSingleton(_mockProcessHelper.Object);
 
-            _mockProcessHelper.Setup(h => h.FormatCpuUsage(input)).Returns(expectedFormattedValue);
+            // Service registration must precede constructor execution 
+            // to satisfy the constructor's immediate ServiceProvider lookup check.
+            App.Services = serviceCollection.BuildServiceProvider();
 
-            // Act
-            var result = converter.Convert(input, typeof(string), null!, CultureInfo.CurrentUICulture);
+            try
+            {
+                double input = 1.25;
+                string expectedFormattedValue = "Mocked 1.3%"; // Distinct text layout ensures absolute validation isolation
 
-            // Assert
-            Assert.Equal(expectedFormattedValue, result);
+                _mockProcessHelper.Setup(h => h.FormatCpuUsage(input)).Returns(expectedFormattedValue);
+                var converter = new CpuUsageConverter();
+
+                // Act
+                var result = converter.Convert(input, typeof(string), null!, CultureInfo.CurrentUICulture);
+
+                // Assert
+                Assert.Equal(expectedFormattedValue, result);
+            }
+            finally
+            {
+                App.Services = originalProvider;
+            }
         }
 
         [Theory]
@@ -45,26 +61,54 @@ namespace Servy.Manager.UnitTests.Converters
         public void Convert_InvalidOrNullValue_ReturnsUnknownPlaceholder(object? input)
         {
             // Arrange
-            var converter = new CpuUsageConverter();
+            var originalProvider = App.Services;
+            var serviceCollection = new ServiceCollection();
+            serviceCollection.AddSingleton(_mockProcessKiller.Object);
+            serviceCollection.AddSingleton(_mockProcessHelper.Object);
 
-            // Act
-            var result = converter.Convert(input!, typeof(string), null!, CultureInfo.CurrentUICulture);
+            App.Services = serviceCollection.BuildServiceProvider();
 
-            // Assert
-            Assert.Equal(UiConstants.NotAvailable, result);
+            try
+            {
+                var converter = new CpuUsageConverter();
+
+                // Act
+                var result = converter.Convert(input!, typeof(string), null!, CultureInfo.CurrentUICulture);
+
+                // Assert
+                Assert.Equal(UiConstants.NotAvailable, result);
+            }
+            finally
+            {
+                App.Services = originalProvider;
+            }
         }
 
         [Fact]
         public void ConvertBack_ReturnsDoNothing()
         {
             // Arrange
-            var converter = new CpuUsageConverter();
+            var originalProvider = App.Services;
+            var serviceCollection = new ServiceCollection();
+            serviceCollection.AddSingleton(_mockProcessKiller.Object);
+            serviceCollection.AddSingleton(_mockProcessHelper.Object);
 
-            // Act
-            var result = converter.ConvertBack(null!, typeof(double), null!, CultureInfo.CurrentUICulture);
+            App.Services = serviceCollection.BuildServiceProvider();
 
-            // Assert
-            Assert.Equal(Binding.DoNothing, result);
+            try
+            {
+                var converter = new CpuUsageConverter();
+
+                // Act
+                var result = converter.ConvertBack(null!, typeof(double), null!, CultureInfo.CurrentUICulture);
+
+                // Assert
+                Assert.Equal(Binding.DoNothing, result);
+            }
+            finally
+            {
+                App.Services = originalProvider;
+            }
         }
     }
 }

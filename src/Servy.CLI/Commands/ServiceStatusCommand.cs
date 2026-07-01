@@ -30,8 +30,8 @@ namespace Servy.CLI.Commands
         /// <returns>A <see cref="CommandResult"/> indicating success or failure.</returns>
         public CommandResult Execute(ServiceStatusOptions opts, CancellationToken cancellationToken = default)
         {
-            var action = $"query status for service '{opts.ServiceName}'";
-            var suggestion = "Verify the service name is spelled correctly and that it is currently installed on this system.";
+            var action = string.Format(Strings.Msg_ServiceStatusAction, opts.ServiceName);
+            var suggestion = Strings.Msg_ServiceStatusSuggestion;
 
             return ExecuteWithHandling("status", action, suggestion, () =>
             {
@@ -42,11 +42,10 @@ namespace Servy.CLI.Commands
                 // 2. Direct execution
                 var status = _serviceManager.GetServiceStatus(opts.ServiceName, cancellationToken: cancellationToken);
 
-                // 1. Log the detailed technical status
-                Logger.Info(string.Format(Strings.Msg_ServiceStatusResult, opts.ServiceName, status));
-
-                // 2. Return the localized result to the console
-                return CommandResult.Ok(string.Format(Strings.Msg_ServiceStatusResult, opts.ServiceName, status));
+                // 3. Log the detailed technical status and return the localized result to the console
+                var statusMsg = string.Format(Strings.Msg_ServiceStatusResult, opts.ServiceName, status);
+                Logger.Info(statusMsg);
+                return CommandResult.Ok(statusMsg);
             });
         }
 

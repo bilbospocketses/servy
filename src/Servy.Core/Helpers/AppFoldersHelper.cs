@@ -76,13 +76,13 @@ namespace Servy.Core.Helpers
         /// <exception cref="InvalidOperationException">Thrown if the connection string format is invalid or directory names cannot be parsed.</exception>
         public static void EnsureFolders(string connectionString, string aesKeyFilePath, string aesIVFilePath)
         {
-            // Validate inputs per original implementation
+            // Reject null/blank paths before any filesystem or ACL work
             if (string.IsNullOrWhiteSpace(connectionString))
-                throw new ArgumentNullException(nameof(connectionString));
+                throw new ArgumentException("connectionString cannot be null or whitespace", nameof(connectionString));
             if (string.IsNullOrWhiteSpace(aesKeyFilePath))
-                throw new ArgumentNullException(nameof(aesKeyFilePath));
+                throw new ArgumentException("aesKeyFilePath cannot be null or whitespace", nameof(aesKeyFilePath));
             if (string.IsNullOrWhiteSpace(aesIVFilePath))
-                throw new ArgumentNullException(nameof(aesIVFilePath));
+                throw new ArgumentException("aesIVFilePath cannot be null or whitespace", nameof(aesIVFilePath));
 
             // 1. Utilize the BCL's robust connection string builder
             DbConnectionStringBuilder builder;
@@ -128,11 +128,10 @@ namespace Servy.Core.Helpers
                 .Select(Path.GetFullPath)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            var normalizedRoot = Path.GetFullPath(AppConfig.ProgramDataPath)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) 
-                + Path.DirectorySeparatorChar;
-
             var canonicalRoot = Path.GetFullPath(AppConfig.ProgramDataPath);
+            var normalizedRoot = canonicalRoot
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
 
             foreach (var folder in subFolders)
             {
