@@ -10,8 +10,6 @@ using Servy.Service.Timers;
 using Servy.Service.Validation;
 using System.Diagnostics;
 using System.Reflection;
-using System.Runtime.InteropServices;
-using System.ServiceProcess;
 using IServiceHelper = Servy.Service.Helpers.IServiceHelper;
 using ITimer = Servy.Service.Timers.ITimer;
 
@@ -19,7 +17,6 @@ namespace Servy.Service.UnitTests
 {
     public class ServiceTests
     {
-        private readonly ITestOutputHelper _output;
         private readonly Mock<IServiceHelper> _mockServiceHelper;
         private readonly Mock<IServyLogger> _mockLogger;
         private readonly Mock<IStreamWriterFactory> _mockStreamWriterFactory;
@@ -33,12 +30,10 @@ namespace Servy.Service.UnitTests
         private readonly Mock<ITimer> _mockTimer;
         private readonly Mock<IProcessWrapper> _mockProcess;
         private readonly Mock<IServiceRepository> _mockServiceRepository;
-        private readonly Mock<IProcessHelper> _mockProcessHelper;
         private readonly Mock<IProcessKiller> _mockProcessKiller;
 
-        public ServiceTests(ITestOutputHelper output)
+        public ServiceTests()
         {
-            _output = output;
             _mockServiceHelper = new Mock<IServiceHelper>();
             _mockLogger = new Mock<IServyLogger>();
             _mockStreamWriterFactory = new Mock<IStreamWriterFactory>();
@@ -68,7 +63,6 @@ namespace Servy.Service.UnitTests
                 .Returns(_mockProcess.Object);
 
             _mockServiceRepository = new Mock<IServiceRepository>();
-            _mockProcessHelper = new Mock<IProcessHelper>();
             _mockProcessKiller = new Mock<IProcessKiller>();
 
             _service = new Service(
@@ -79,76 +73,8 @@ namespace Servy.Service.UnitTests
                 _mockProcessFactory.Object,
                 _mockPathValidator.Object,
                 _mockServiceRepository.Object,
-                _mockProcessHelper.Object,
                 _mockProcessKiller.Object
             );
-        }
-
-        [Fact(Skip = "This test is skipped because reflection-based SCM registration has been replaced by native P/Invoke calls.")]
-        [Trait("Category", "ReflectionValidation")]
-        public void Verify_ServiceBase_Internal_Fields_Exist_On_Current_Runtime()
-        {
-            // Arrange
-            var type = typeof(ServiceBase);
-            string framework = RuntimeInformation.FrameworkDescription;
-            _output.WriteLine($"Validating ServiceBase reflection for: {framework}");
-
-            // 1. Define Known Field Names based on .NET Lineage
-            // _acceptedCommands: .NET Core 1.0 -> .NET 10.0+
-            // acceptedCommands:  .NET Framework 4.0 -> 4.8
-            string[] commandFields = { "_acceptedCommands", "acceptedCommands" };
-
-            // - "serviceStatusHandle"  : Standard .NET Framework 4.x
-            // - "_statusHandle"         : Standard .NET 5.0 - .NET 10.0+
-            // - "statusHandle"          : Mono / Early .NET Core variants
-            // - "m_serviceStatusHandle" : Legacy Windows SDK / Alpha runtimes
-            string[] handleFields =
-            {
-                "serviceStatusHandle",  // .NET Framework
-                "statusHandle",         // Alternative .NET Framework
-                "_statusHandle",        // Modern .NET (private with underscore)
-                "_serviceStatusHandle", // Modern .NET variant
-                "m_statusHandle",       // Older naming convention
-                "m_serviceStatusHandle" // Older naming convention
-            };
-
-            // 2. Act
-            var foundCommandField = commandFields
-                .Select(f => type.GetField(f, BindingFlags.Instance | BindingFlags.NonPublic))
-                .FirstOrDefault(field => field != null);
-
-            var foundHandleField = handleFields
-                .Select(f => type.GetField(f, BindingFlags.Instance | BindingFlags.NonPublic))
-                .FirstOrDefault(field => field != null);
-
-            // 3. Diagnostic Log & Assert
-            bool isFailed = foundCommandField == null || foundHandleField == null;
-
-            if (isFailed)
-            {
-                _output.WriteLine("--- REFLECTION FAILURE DIAGNOSTICS ---");
-                _output.WriteLine($"Framework: {framework}");
-                _output.WriteLine("Listing all non-public instance fields available on ServiceBase:");
-
-                var allPrivateFields = type.GetFields(BindingFlags.Instance | BindingFlags.NonPublic);
-                foreach (var field in allPrivateFields)
-                {
-                    _output.WriteLine($" -> Name: {field.Name} (Type: {field.FieldType.Name})");
-                }
-                _output.WriteLine("---------------------------------------");
-            }
-
-            // Assert with descriptive messages
-            Assert.True(foundCommandField != null,
-                $"[Reflection Gap] No known 'AcceptedCommands' field found on {framework}. " +
-                "Pre-Shutdown signal interception will fail. Check test output for available fields.");
-
-            Assert.True(foundHandleField != null,
-                $"[Reflection Gap] No known 'StatusHandle' field found on {framework}. " +
-                "SCM signaling (SERVICE_RUNNING) will fail. Check test output for available fields.");
-
-            if (foundCommandField != null) _output.WriteLine($"Found Command Field: {foundCommandField.Name}");
-            if (foundHandleField != null) _output.WriteLine($"Found Handle Field: {foundHandleField.Name}");
         }
 
         [Fact]
@@ -165,8 +91,8 @@ namespace Servy.Service.UnitTests
                 HeartbeatInterval = 10,
                 MaxFailedChecks = 3,
                 RecoveryAction = RecoveryAction.RestartProcess,
-                StdOutPath = "C:\\Logs\\stdout.log",
-                StdErrPath = "C:\\Logs\\stderr.log"
+                StdoutPath = "C:\\Logs\\stdout.log",
+                StderrPath = "C:\\Logs\\stderr.log"
             };
 
             var mockScopedLogger = new Mock<IServyLogger>();
@@ -202,7 +128,7 @@ namespace Servy.Service.UnitTests
         }
 
         [Fact]
-        public void OnStart_InvalidStdOutPath_LogsError()
+        public void OnStart_InvalidStdoutPath_LogsError()
         {
             // Arrange
             var fullArgs = new[] { "servy.exe" };
@@ -210,8 +136,8 @@ namespace Servy.Service.UnitTests
             {
                 ServiceName = "TestService",
                 ExecutablePath = "C:\\Windows\\notepad.exe",
-                StdOutPath = "InvalidPath???",
-                StdErrPath = string.Empty,
+                StdoutPath = "InvalidPath???",
+                StderrPath = string.Empty,
                 RecoveryAction = RecoveryAction.None
             };
 
@@ -231,7 +157,7 @@ namespace Servy.Service.UnitTests
                 .Returns(true);
 
             // 4. Force the path validation to fail
-            _mockPathValidator.Setup(v => v.IsValidPath(options.StdOutPath)).Returns(false);
+            _mockPathValidator.Setup(v => v.IsValidPath(options.StdoutPath)).Returns(false);
 
             // Act
             _service.StartForTest();
@@ -327,7 +253,6 @@ namespace Servy.Service.UnitTests
                 mockProcessFactory.Object,
                 mockPathValidator.Object,
                 _mockServiceRepository.Object,
-                _mockProcessHelper.Object,
                 _mockProcessKiller.Object
             );
             service.SetChildProcess(mockProcess.Object);
@@ -362,7 +287,6 @@ namespace Servy.Service.UnitTests
                 mockProcessFactory.Object,
                 mockPathValidator.Object,
                 _mockServiceRepository.Object,
-                _mockProcessHelper.Object,
                 _mockProcessKiller.Object
             );
             service.SetChildProcess(mockProcess.Object);
@@ -396,28 +320,24 @@ namespace Servy.Service.UnitTests
                 mockProcessFactory.Object,
                 mockPathValidator.Object,
                 _mockServiceRepository.Object,
-                _mockProcessHelper.Object,
                 _mockProcessKiller.Object
             );
 
             var options = new StartOptions
             {
-                StdOutPath = "valid_stdout.log",
-                StdErrPath = "valid_stderr.log",
+                StdoutPath = "valid_stdout.log",
+                StderrPath = "valid_stderr.log",
                 RotationSizeInBytes = 12345,
                 UseLocalTimeForRotation = true,
             };
 
-            // Simulate Helper.IsValidPath always true for testing
-            HelperOverride.IsValidPathOverride = path => true;
-
             var mockStdOutWriter = new Mock<IStreamWriter>();
             var mockStdErrWriter = new Mock<IStreamWriter>();
 
-            mockStreamWriterFactory.Setup(f => f.Create(options.StdOutPath, options.EnableSizeRotation, options.RotationSizeInBytes, options.EnableDateRotation, options.DateRotationType, options.MaxRotations, options.UseLocalTimeForRotation))
+            mockStreamWriterFactory.Setup(f => f.Create(options.StdoutPath, options.EnableSizeRotation, options.RotationSizeInBytes, options.EnableDateRotation, options.DateRotationType, options.MaxRotations, options.UseLocalTimeForRotation))
                 .Returns(mockStdOutWriter.Object);
 
-            mockStreamWriterFactory.Setup(f => f.Create(options.StdErrPath, options.EnableSizeRotation, options.RotationSizeInBytes, options.EnableDateRotation, options.DateRotationType, options.MaxRotations, options.UseLocalTimeForRotation))
+            mockStreamWriterFactory.Setup(f => f.Create(options.StderrPath, options.EnableSizeRotation, options.RotationSizeInBytes, options.EnableDateRotation, options.DateRotationType, options.MaxRotations, options.UseLocalTimeForRotation))
                 .Returns(mockStdErrWriter.Object);
 
             mockPathValidator.Setup(v => v.IsValidPath(It.IsAny<string>())).Returns(true);
@@ -426,14 +346,11 @@ namespace Servy.Service.UnitTests
             service.InvokeHandleLogWriters(options);
 
             // Assert
-            mockStreamWriterFactory.Verify(f => f.Create(options.StdOutPath, options.EnableSizeRotation, options.RotationSizeInBytes, options.EnableDateRotation, options.DateRotationType, options.MaxRotations, options.UseLocalTimeForRotation), Times.Once);
-            mockStreamWriterFactory.Verify(f => f.Create(options.StdErrPath, options.EnableSizeRotation, options.RotationSizeInBytes, options.EnableDateRotation, options.DateRotationType, options.MaxRotations, options.UseLocalTimeForRotation), Times.Once);
+            mockStreamWriterFactory.Verify(f => f.Create(options.StdoutPath, options.EnableSizeRotation, options.RotationSizeInBytes, options.EnableDateRotation, options.DateRotationType, options.MaxRotations, options.UseLocalTimeForRotation), Times.Once);
+            mockStreamWriterFactory.Verify(f => f.Create(options.StderrPath, options.EnableSizeRotation, options.RotationSizeInBytes, options.EnableDateRotation, options.DateRotationType, options.MaxRotations, options.UseLocalTimeForRotation), Times.Once);
 
             // Check no errors logged
             mockLogger.Verify(l => l.Error(It.IsAny<string>(), It.IsAny<Exception>()), Times.Never);
-
-            // Cleanup helper override
-            HelperOverride.IsValidPathOverride = null;
         }
 
         [Fact]
@@ -455,19 +372,15 @@ namespace Servy.Service.UnitTests
                 mockProcessFactory.Object,
                 mockPathValidator.Object,
                 _mockServiceRepository.Object,
-                _mockProcessHelper.Object,
                 _mockProcessKiller.Object
             );
 
             var options = new StartOptions
             {
-                StdOutPath = "invalid_stdout.log",
-                StdErrPath = "invalid_stderr.log",
+                StdoutPath = "invalid_stdout.log",
+                StderrPath = "invalid_stderr.log",
                 RotationSizeInBytes = 12345
             };
-
-            // Simulate Helper.IsValidPath always false for testing invalid paths
-            HelperOverride.IsValidPathOverride = path => false;
 
             // Act
             service.InvokeHandleLogWriters(options);
@@ -476,9 +389,6 @@ namespace Servy.Service.UnitTests
             mockStreamWriterFactory.Verify(f => f.Create(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<long>(), It.IsAny<bool>(), It.IsAny<DateRotationType>(), It.IsAny<int>(), It.IsAny<bool>()), Times.Never);
 
             mockLogger.Verify(l => l.Error(It.Is<string>(msg => msg.Contains("Invalid log file path")), null), Times.Exactly(2));
-
-            // Cleanup helper override
-            HelperOverride.IsValidPathOverride = null;
         }
 
         [Fact]
@@ -500,14 +410,13 @@ namespace Servy.Service.UnitTests
                 mockProcessFactory.Object,
                 mockPathValidator.Object,
                 _mockServiceRepository.Object,
-                _mockProcessHelper.Object,
                 _mockProcessKiller.Object
             );
 
             var options = new StartOptions
             {
-                StdOutPath = "",
-                StdErrPath = string.Empty,
+                StdoutPath = "",
+                StderrPath = string.Empty,
                 RotationSizeInBytes = 12345,
                 MaxRotations = 5,
             };
@@ -727,10 +636,6 @@ namespace Servy.Service.UnitTests
             _mockPathValidator.Setup(v => v.IsValidPath(It.IsAny<string>())).Returns(true);
             _mockProcess.Setup(p => p.Start()).Returns(true);
 
-            // Default ProcessFactory mock for the main process
-            _mockProcessFactory.Setup(f => f.Create(It.Is<ProcessStartInfo>(psi => psi.FileName == options.ExecutablePath), It.IsAny<IServyLogger>()))
-                .Returns(_mockProcess.Object);
-
             return mockScopedLogger;
         }
 
@@ -845,7 +750,7 @@ namespace Servy.Service.UnitTests
         public void OnOutputDataReceived_ValidData_WritesToStdoutWriter()
         {
             // Arrange
-            var options = new StartOptions { ServiceName = "Test", ExecutablePath = "test.exe", StdOutPath = "stdout.log" };
+            var options = new StartOptions { ServiceName = "Test", ExecutablePath = "test.exe", StdoutPath = "stdout.log" };
             SetupStandardServiceStart(options);
             _service.StartForTest();
 
@@ -863,12 +768,13 @@ namespace Servy.Service.UnitTests
         public void OnErrorDataReceived_ValidData_WritesToStderrWriter()
         {
             // Arrange
-            // Change "err.log" to "test_stderr.log" so the StreamWriterFactory Setup matches it!
+            // StdErrPath must contain "stderr": the class-level IStreamWriterFactory mock
+            // routes on that substring and returns null for anything else.
             var options = new StartOptions
             {
                 ServiceName = "Test",
                 ExecutablePath = "test.exe",
-                StdErrPath = "test_stderr.log"
+                StderrPath = "test_stderr.log"
             };
             SetupStandardServiceStart(options);
             _service.StartForTest();
@@ -887,7 +793,7 @@ namespace Servy.Service.UnitTests
         public void OnOutputDataReceived_NullData_DoesNothing()
         {
             // Arrange
-            var options = new StartOptions { ServiceName = "Test", ExecutablePath = "test.exe", StdOutPath = "out.log" };
+            var options = new StartOptions { ServiceName = "Test", ExecutablePath = "test.exe", StdoutPath = "out.log" };
             SetupStandardServiceStart(options);
             _service.StartForTest();
 

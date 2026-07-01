@@ -22,23 +22,23 @@ namespace Servy.Core.Config
         /// Gets the name of the Windows Event Log channel used for logging and querying.
         /// Default is "Application".
         /// </summary>
-        public static readonly string EventLogName = "Application";
+        public const string EventLogName = "Application";
 
         /// <summary>
         /// The name of the Windows service and the associated Event Log source.
         /// Used for service registration and writing logs to the Windows Event Viewer.
         /// </summary>
-        public static readonly string EventSource = "Servy";
+        public const string EventSource = "Servy";
 
         /// <summary>
         /// Servy's official documentation link.
         /// </summary>
-        public static readonly string DocumentationLink = "https://github.com/aelassas/servy/wiki";
+        public const string DocumentationLink = "https://github.com/aelassas/servy/wiki";
 
         /// <summary>
         /// Latest GitHub release link.
         /// </summary>
-        public static readonly string LatestReleaseLink = "https://github.com/aelassas/servy/releases/latest";
+        public const string LatestReleaseLink = "https://github.com/aelassas/servy/releases/latest";
 
         /// <summary>
         /// Command-line argument used to bypass hardware acceleration and force 
@@ -96,7 +96,7 @@ namespace Servy.Core.Config
         /// The default file name of the Sysinternals Handle executable used to detect
         /// processes holding handles to files. Typically <c>handle64.exe</c> on 64-bit systems.
         /// </summary>
-        public static readonly string HandleExeX64FileName = "handle64";
+        public const string HandleExeX64FileName = "handle64";
 
         /// <summary>
         /// Gets the full file name of the Sysinternals Handle executable (x64), including the ".exe" extension.
@@ -107,7 +107,7 @@ namespace Servy.Core.Config
         /// The default file name of the Sysinternals Handle executable used to detect
         /// processes holding handles to files. Typically <c>handle64a.exe</c> on ARM64 systems.
         /// </summary>
-        public static readonly string HandleExeARM64FileName = "handle64a";
+        public const string HandleExeARM64FileName = "handle64a";
 
         /// <summary>
         /// Gets the full file name of the Sysinternals Handle executable (ARM64), including the ".exe" extension.
@@ -118,12 +118,12 @@ namespace Servy.Core.Config
         /// The file name of the Servy.Core assembly (without extension).
         /// Used when copying or loading the core library dynamically.
         /// </summary>
-        public static readonly string ServyCoreDllName = "Servy.Core";
+        public const string ServyCoreDllName = "Servy.Core";
 
         /// <summary>
         /// The base file name (without extension) of the Servy Service UI executable.
         /// </summary>
-        public static readonly string ServyServiceUIFileName = "Servy.Service";
+        public const string ServyServiceUIFileName = "Servy.Service";
 
         /// <summary>
         /// The full file name (with extension) of the Servy Service UI executable.
@@ -199,7 +199,7 @@ namespace Servy.Core.Config
         public static readonly string SecurityFolderPath = Path.Combine(ProgramDataPath, "security");
 
         /// <summary>
-        /// Path to the recovery folder containing containing service restart attempts files.
+        /// Path to the recovery folder containing service restart attempts files.
         /// </summary>
         public static readonly string RecoveryFolderPath = Path.Combine(ProgramDataPath, "recovery");
 
@@ -297,7 +297,7 @@ namespace Servy.Core.Config
         /// <summary>
         /// Extra buffer to ensure SCM doesn't kill the service before cleanup finishes.
         /// </summary>
-        public static readonly int ScmTimeoutBufferSeconds = 15;
+        public const int ScmTimeoutBufferSeconds = 15;
 
         /// <summary>
         /// The default maximum time (in seconds) to wait for a service to reach the 'Running' state.
@@ -315,7 +315,8 @@ namespace Servy.Core.Config
         public const int MaxParallelScmQueries = 8;
 
         /// <summary>
-        /// Default timeout in seconds to wait for a Windows Service to stop. Default is 60 seconds.
+        /// The wall-clock minimum (floor), in seconds, applied by ServiceManager when a
+        /// configured per-service stop timeout would otherwise be unreasonably short. Default is 60 seconds.
         /// </summary>
         public const int ScmStopTimeoutFloorSeconds = 60;
 
@@ -342,20 +343,20 @@ namespace Servy.Core.Config
         public const bool DefaultEnableConsoleUI = false;
 
         /// <summary>
-        /// Gets a value indicating whether the service should run under the 
-        /// LocalSystem account by default. Default is <c>true</c>.
+        /// The default value for <c>RunAsLocalSystem</c>. Default is <c>true</c>.
         /// </summary>
         public const bool DefaultRunAsLocalSystem = true;
 
         /// <summary>
-        /// Gets a value indicating whether verbose debug-level logging is enabled by default.
-        /// Default is <c>false</c>.
+        /// The default value for <c>EnableDebugLogs</c>. Default is <c>false</c>.
         /// </summary>
         public const bool DefaultEnableDebugLogs = false;
 
+        /// <summary>The default rolling interval for Servy's own internal log when not set in appsettings. Default is None (no date-based rotation).</summary>
+        public const DateRotationType DefaultLogRollingInterval = DateRotationType.None;
+
         /// <summary>
-        /// Gets a value indicating whether process health monitoring (heartbeat checks) 
-        /// is enabled by default. Default is <c>false</c>.
+        /// The default value for <c>EnableHealthMonitoring</c>. Default is <c>false</c>.
         /// </summary>
         public const bool DefaultEnableHealthMonitoring = false;
 
@@ -417,6 +418,14 @@ namespace Servy.Core.Config
         public const int ScmStartupRequestThresholdSeconds = 20;
 
         /// <summary>
+        /// Defines the safety buffer, in seconds, added to the configured service start 
+        /// timeout when requesting additional time from the Service Control Manager (SCM). 
+        /// This ensures the service has sufficient overhead to initialize without 
+        /// being prematurely terminated by the SCM.
+        /// </summary>
+        public const int ScmStartupRequestBufferSeconds = 10;
+
+        /// <summary>
         /// The wait hint in milliseconds sent to the Service Control Manager (SCM) during a Pre-Shutdown event.
         /// </summary>
         /// <remarks>
@@ -440,8 +449,7 @@ namespace Servy.Core.Config
         public const int DefaultPreLaunchRetryAttempts = 0;
 
         /// <summary>
-        /// Gets a value indicating whether the service should continue starting if the 
-        /// pre-launch executable fails. Default is <c>false</c>.
+        /// The default value for <c>PreLaunchIgnoreFailure</c>. Default is <c>false</c>.
         /// </summary>
         public const bool DefaultPreLaunchIgnoreFailure = false;
 
@@ -451,20 +459,17 @@ namespace Servy.Core.Config
         public const int DefaultPreStopTimeoutSeconds = 5;
 
         /// <summary>
-        /// Gets a value indicating whether failures in the pre-stop executable should 
-        /// be logged as Errors. Default is <c>false</c> (logged as Warnings).
+        /// The default value for <c>PreStopLogAsError</c>. Default is <c>false</c>.
         /// </summary>
         public const bool DefaultPreStopLogAsError = false;
 
         /// <summary>
-        /// Gets a value indicating whether size-based log rotation is enabled by default.
-        /// Default is <c>false</c>.
+        /// The default value for <c>EnableSizeRotation</c>. Default is <c>false</c>.
         /// </summary>
         public const bool DefaultEnableSizeRotation = false;
 
         /// <summary>
-        /// Gets a value indicating whether date-based log rotation is enabled by default.
-        /// Default is <c>false</c>.
+        /// The default value for <c>EnableDateRotation</c>. Default is <c>false</c>.
         /// </summary>
         public const bool DefaultEnableDateRotation = false;
 
@@ -509,7 +514,7 @@ namespace Servy.Core.Config
         /// <para>When set to <c>false</c>, log rotation intervals are calculated using Coordinated Universal Time (UTC). 
         /// This ensures a consistent, monotonic rotation schedule that is unaffected by Daylight Saving Time transitions.</para>
         /// <para>
-        /// <b>CRITICAL SIDE EFFECT SIDE-CHANNEL:</b> Changing this value introduces a global side effect 
+        /// <b>CRITICAL SIDE EFFECT:</b> Changing this value introduces a global side effect 
         /// that extends beyond log file splitting boundaries. It directly dictates whether log entry line 
         /// headers are written using the host system's localized time zone context (<see cref="DateTime.Now"/>) 
         /// or Coordinated Universal Time (<see cref="DateTime.UtcNow"/>).
@@ -609,12 +614,21 @@ namespace Servy.Core.Config
         public const int LogTailerUnhandledErrorRecoveryDelayMs = 1000;
 
         /// <summary>
+        /// The allocation buffer size in bytes used by the log tailer during background backward-scan file operations.
+        /// </summary>
+        /// <remarks>
+        /// This value directly controls the chunk size for sequential disk reads when parsing log file history 
+        /// up to the maximum line threshold, mitigating multiple small I/O calls on larger files.
+        /// </remarks>
+        public const int LogTailerHistoryScanBufferSize = 4096;
+
+        /// <summary>
         /// Defines the minimum execution duration threshold (in milliseconds) required to keep the splash screen visible.
         /// </summary>
         /// <remarks>
         /// This boundary constant prevents visual stutter or jarring UI flashes on high-performance environments. 
         /// If the core application subsystem initialization sequence completes faster than this designated time window, 
-        /// the layout engine introduces a artificial padding delay before transitioning to the primary application workspace.
+        /// the layout engine introduces an artificial padding delay before transitioning to the primary application workspace.
         /// </remarks>
         public const int SplashMinDisplayThresholdMs = 1000;
 
@@ -626,6 +640,15 @@ namespace Servy.Core.Config
         /// requirement threshold. It dampens the window transition, providing an intentional, smooth visual pause for the user.
         /// </remarks>
         public const int SplashMinDisplayPaddingMs = 500;
+
+        /// <summary>
+        /// The positional launch argument string passed to indicate whether the splash screen should be bypassed on application startup.
+        /// </summary>
+        /// <remarks>
+        /// This string value binds the producer contract in <c>ServiceCommands.OpenManager</c> directly with the consumer parsing engine 
+        /// in <c>AppBootstrapper.OnStartup</c>. Changing this configuration field guarantees that both boundaries remain synchronized.
+        /// </remarks>
+        public const string SkipSplashArgument = "false";
 
         #endregion
 
@@ -651,10 +674,10 @@ namespace Servy.Core.Config
         /// The default timeout in milliseconds for regular expression matching operations.
         /// </summary>
         /// <remarks>
-        /// A 200ms timeout is used as a security measure to prevent Regular Expression Denial of Service (ReDoS) 
+        /// A 2000ms timeout is used as a security measure to prevent Regular Expression Denial of Service (ReDoS) 
         /// attacks while providing enough headroom for complex service name or log filtering patterns.
         /// </remarks>
-        public const int InputRegexTimeoutMs = 200;
+        public const int InputRegexTimeoutMs = 2_000;
 
         /// <summary>
         /// Gets a <see cref="TimeSpan"/> representation of the <see cref="InputRegexTimeoutMs"/>.
@@ -775,8 +798,9 @@ namespace Servy.Core.Config
         public const long MaxConfigFileSizeBytes = (long)MaxConfigFileSizeMB * BytesInMegabyte;
 
         /// <summary>
-        /// The maximum age in minutes an extracted resource can be before it is considered stale.
-        /// Time delta in minutes to consider an embedded resource as "newer" than an existing file
+        /// Tolerance, in minutes, when comparing the embedded resource timestamp against an
+        /// existing extracted file: the resource is treated as "newer" (and re-extracted)
+        /// only if it is at least this much younger than the file on disk.
         /// </summary>
         public const int ResourceStalenessThresholdMinutes = 20;
 
@@ -829,6 +853,17 @@ namespace Servy.Core.Config
         public const int LoggerMaxFormattedExceptionLength = 16384; // 16 KB cap to prevent log bloat
 
         /// <summary>
+        /// Default maximum number of backup log files to keep. When the number of rotated files exceeds this limit, the oldest files will be deleted.
+        /// </summary>
+        public const int LoggerDefaultMaxBackupLogFiles = 10;
+
+        /// <summary>
+        /// The maximum number of fallback log writes allowed per process lifetime.
+        /// Prevents unbounded growth of fallback log files if the primary logger continuously fails.
+        /// </summary>
+        public const int LoggerMaxFallbackWrites = 10;
+
+        /// <summary>
         /// The maximum character length permitted for a single Windows Event Log entry.
         /// </summary>
         /// <remarks>
@@ -838,7 +873,7 @@ namespace Servy.Core.Config
         /// characters and header metadata, ensuring that log writes do not fail due to message bloat.
         /// </para>
         /// <para>
-        /// When a log message exceeds this limit, the <see cref="SafeWriteToEventLog"/> method will truncate the string 
+        /// When a log message exceeds this limit, the <c>SafeWriteToEventLog</c> method in <see cref="EventLogLogger"/> will truncate the string 
         /// and append a "[truncated]" suffix to maintain forensic visibility while ensuring the write operation succeeds.
         /// </para>
         /// </remarks>
@@ -991,7 +1026,7 @@ namespace Servy.Core.Config
         /// <b>Telemetry Dampening Circuit:</b> In long-running background worker environments, transient filesystem 
         /// friction (such as temporary file locks from antivirus sweeps, backup software indexing, or active 
         /// remote management tailing tools) can cause intermittent deletion failures. Logging these as critical 
-        /// immediately would pollute event streams with actionable noise.
+        /// immediately would pollute event streams with non-actionable noise.
         /// </para>
         /// <para>
         /// This constant establishes a threshold window. If the internal failure counter intercepts 
@@ -1067,6 +1102,46 @@ namespace Servy.Core.Config
         /// to avoid system-level instability or accidental kernel-space interference.
         /// </summary>
         public const int MaxReservedSystemPid = 4;
+
+        /// <summary>
+        /// The maximum allowed depth limit constraint when deserializing untrusted or external JSON data structures.
+        /// </summary>
+        /// <remarks>
+        /// This security-relevant hardening threshold strictly bounds structural recursion depth during token parsing. 
+        /// Enforcing an upper ceiling of 32 effectively blocks stack-exhaustion denial-of-service (DoS) exploits 
+        /// engineered via deeply nested malicious JSON payloads.
+        /// </remarks>
+        public const int UntrustedJsonMaxDepth = 32;
+
+        /// <summary>
+        /// The maximum duration in seconds that a process will block while waiting to acquire 
+        /// the cross-process global synchronization mutex lock for protected cryptographic key operations.
+        /// </summary>
+        /// <remarks>
+        /// This value prevents application startup or installation deadlocks across multiple process 
+        /// boundaries (e.g., CLI, Service Wrapper, and UI Manager) by throwing a deterministic 
+        /// <see cref="TimeoutException"/> if the key material lock cannot be acquired within 30 seconds.
+        /// </remarks>
+        public const int KeyProviderMutexTimeoutSeconds = 30;
+
+        /// <summary>
+        /// The base backoff delay period in milliseconds used inside the exponential backoff 
+        /// strategy when retrying file-read IO operations on cryptographic keys.
+        /// </summary>
+        /// <remarks>
+        /// This 100ms base time multiplier governs the sleep window (<c>Base * (1 &lt;&lt; attempt)</c>) 
+        /// during retry loops, helping to safely resolve concurrent file-system access races on the raw key storage layer.
+        /// </remarks>
+        public const int KeyProviderReadRetryBackoffBaseMs = 100;
+
+        /// <summary>
+        /// The collection of lowercase file extensions allowed for service configuration file operations.
+        /// </summary>
+        /// <remarks>
+        /// This security policy centralizes the application's supported file types, keeping the validation 
+        /// boundaries in <c>PathSecurityGuard</c> synchronized with the file dialog filters and serializers.
+        /// </remarks>
+        public static readonly string[] AllowedConfigFileExtensions = { ".json", ".xml" };
 
         #endregion
 
@@ -1334,8 +1409,8 @@ namespace Servy.Core.Config
         public const int LogTailerMaxUnhandledErrorRecoveryDelayMs = 60_000;
 
         /// <summary>
-        /// Defines the frequency threshold for reporting consecutive unhandled errors to avoid flooding log pipelines.
-        /// Evacuates duplicates by only authorizing reports every Nth exception pattern cycle.
+        /// Throttles repeated unhandled tailer errors: only every Nth consecutive
+        /// error is logged, to avoid flooding the log pipeline.
         /// </summary>
         public const int LogTailerErrorLogThrottlingInterval = 60;
 
@@ -1438,8 +1513,6 @@ namespace Servy.Core.Config
         /// </remarks>
         public const string PostStopParametersEnvVarName = "SERVY_POST_STOP_PARAMETERS";
 
-
-
         /// <summary>
         /// Controls whether the system will process legacy v1 (unauthenticated) ciphertexts.
         /// </summary>
@@ -1452,11 +1525,18 @@ namespace Servy.Core.Config
 
         #endregion
 
+        #region Native Error Codes
+
+        /// <summary>Win32 ERROR_SERVICE_SPECIFIC_ERROR (1066); reported to the SCM so it reads dwServiceSpecificExitCode.</summary>
+        public const int ServiceSpecificErrorCode = 1066;
+
+        #endregion
+
         #region Public Methods
 
         /// <summary>
-        /// Gets the full path to the Sysinternals Handle executable (<c>handle64.exe</c> or <c>handle.exe</c>)
-        /// depending on the build configuration. In DEBUG mode, it looks in the application's base directory;
+        /// Gets the full path to the Sysinternals Handle executable (<c>handle64.exe</c> on x64, or
+        /// <c>handle64a.exe</c> on ARM64). In DEBUG mode, it looks in the application's base directory;
         /// in RELEASE mode, it looks in the ProgramData folder.
         /// </summary>
         /// <returns>The full path to the Handle executable.</returns>
@@ -1470,7 +1550,7 @@ namespace Servy.Core.Config
         /// In <c>DEBUG</c> builds, the path points to the executable located in the application’s base directory.
         /// In <c>RELEASE</c> builds, the path points to the executable located in the ProgramData folder.
         /// </remarks>
-        /// <returns>The full file path to <c>ServyServiceCLI.exe</c>.</returns>
+        /// <returns>The full file path to <c>Servy.Service.CLI.exe</c>.</returns>
         public static string GetServyCLIServicePath() => ResolveExe(ServyServiceCLIFileName);
 
         /// <summary>
@@ -1480,7 +1560,7 @@ namespace Servy.Core.Config
         /// In <c>DEBUG</c> builds, the path points to the executable located in the application’s base directory.
         /// In <c>RELEASE</c> builds, the path points to the executable located in the ProgramData folder.
         /// </remarks>
-        /// <returns>The full file path to <c>ServyServiceUI.exe</c>.</returns>
+        /// <returns>The full file path to <c>Servy.Service.exe</c>.</returns>
         public static string GetServyUIServicePath() => ResolveExe(ServyServiceUIFileName);
 
         /// <summary>
@@ -1500,8 +1580,8 @@ namespace Servy.Core.Config
         /// <param name="fileName">The base name of the executable (without the .exe extension).</param>
         /// <returns>The fully qualified path to the executable; callers must verify with File.Exists.</returns>
         /// <remarks>
-        /// In <c>DEBUG</c> mode, this resolves to the resource directory within the repository root to facilitate 
-        /// development without requiring manual file copying. In <c>RELEASE</c> mode, it checks the application's 
+        /// In <c>DEBUG</c> mode, this resolves to the application's base directory (the build output folder), 
+        /// where the required executables are copied during the build. In <c>RELEASE</c> mode, it checks the application's 
         /// base directory (supporting unit tests/portable use) before falling back to the hardened <c>ProgramData</c> vault.
         /// </remarks>
         private static string ResolveExe(string fileName)
@@ -1534,7 +1614,7 @@ namespace Servy.Core.Config
         /// Thrown when the root of the drive is reached without finding <c>Servy.sln</c> in any ancestor directory.
         /// </exception>
         /// <remarks>
-        /// Primarily used by the DEBUG-only <see cref="RepoRoot"/> field and by unit tests
+        /// Primarily used by the DEBUG-only <c>RepoRoot</c> field and by unit tests
         /// (which run in all build configurations) to resolve solution-relative paths.
         /// </remarks>
         public static string FindRepoRoot(string startDir)

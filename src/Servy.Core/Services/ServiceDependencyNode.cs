@@ -13,13 +13,16 @@ namespace Servy.Core.Services
         #region Fields
 
         private string? _displayName;
-        private bool? _isRunning;
-        private bool? _isExpanded;
+        private bool _isRunning;
+        private bool _isExpanded;
 
         #endregion
 
         #region Events
 
+        /// <summary>
+        /// Occurs when a property value changes.
+        /// </summary>
         public event PropertyChangedEventHandler? PropertyChanged;
 
         #endregion
@@ -44,20 +47,12 @@ namespace Servy.Core.Services
         /// <summary>
         /// Gets or sets a flag indicating if the service is running.
         /// </summary>
-        public bool IsRunning
-        {
-            get => _isRunning ?? false;
-            set => SetProperty(ref _isRunning, value);
-        }
+        public bool IsRunning { get => _isRunning; set => SetProperty(ref _isRunning, value); }
 
         /// <summary>
         /// Gets or sets a flag indicating if the service node is expanded.
         /// </summary>
-        public bool IsExpanded
-        {
-            get => _isExpanded ?? false;
-            set => SetProperty(ref _isExpanded, value);
-        }
+        public bool IsExpanded { get => _isExpanded; set => SetProperty(ref _isExpanded, value); }
 
         /// <summary>
         /// Gets the collection of services that this service
@@ -81,16 +76,16 @@ namespace Servy.Core.Services
         /// <param name="serviceName">The internal service name used by the system.</param>
         /// <param name="displayName">The friendly display name of the service.</param>
         /// <param name="isRunning">Indicates whether the service is currently in a running state.</param>
-        /// <param name="isCycle">
+        /// <param name="isCyclic">
         /// Set to <see langword="true"/> if this service creates a dependency loop; 
         /// this prevents further recursive discovery of child dependencies.
         /// </param>
-        public ServiceDependencyNode(string serviceName, string displayName, bool isRunning = false, bool isCycle = false)
+        public ServiceDependencyNode(string serviceName, string displayName, bool isRunning = false, bool isCyclic = false)
         {
             ServiceName = serviceName ?? throw new ArgumentNullException(nameof(serviceName));
             DisplayName = displayName;
             IsRunning = isRunning;
-            IsCyclic = isCycle;
+            IsCyclic = isCyclic;
         }
 
         #endregion

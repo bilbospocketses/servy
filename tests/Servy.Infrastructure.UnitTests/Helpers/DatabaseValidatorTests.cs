@@ -22,7 +22,7 @@ namespace Servy.Infrastructure.Tests.Helpers
         [Theory]
         [InlineData("3.50.1", false)]  // Just below threshold
         [InlineData("3.50.2", true)]   // Exactly at threshold
-        [InlineData("3.50.4", true)]   // Your SourceGear version
+        [InlineData("3.50.4", true)]   // Above threshold
         [InlineData("4.0.0", true)]    // Future version
         [InlineData("invalid", false)] // Unparseable string
         public void SQLiteVersionComparison_LogicCheck(string versionToTest, bool expectedSafe)
@@ -53,25 +53,13 @@ namespace Servy.Infrastructure.Tests.Helpers
         [InlineData("v3.50.2", false)] // Version.TryParse fails on leading characters
         [InlineData("", false)]
         [InlineData(null, false)]
-        public void IsSqliteVersionSafeInternal_CoverageTest(string? inputVersion, bool expectedResult)
+        public void ValidateVersion_CoverageTest(string? inputVersion, bool expectedResult)
         {
             // Act
-            bool actualResult = DatabaseValidator.ValidateVersion(inputVersion, out string? currentVersion);
+            bool actualResult = DatabaseValidator.ValidateVersion(inputVersion);
 
             // Assert
             Assert.Equal(expectedResult, actualResult);
-            Assert.Equal(inputVersion, currentVersion); // Ensures currentVersion is assigned correctly
         }
-
-        [Fact]
-        public void IsSqliteVersionSafeInternal_OutputsExactInput()
-        {
-            // This specifically tests the "currentVersion = versionToValidate" assignment
-            string myInput = "9.9.9-test";
-            DatabaseValidator.ValidateVersion(myInput, out string? output);
-
-            Assert.Equal(myInput, output);
-        }
-
     }
 }

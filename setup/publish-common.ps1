@@ -82,7 +82,7 @@ function Build-Installer {
             # Treat any non-zero exit as potentially transient for the first few retries.
             # This avoids the complex and unreliable string-parsing logic.
             if ($currentAttempt -lt $MaxRetry) {
-                # Now this will actually execute and wait for the AV lock to release
+                # Transient failure: pause to let the AV file lock release before retrying.
                 Write-Warning "Inno Setup failed (likely AV lock). Waiting $($RetryDelaySeconds)s before retry..."
                 Start-Sleep -Seconds $RetryDelaySeconds
             } else {
@@ -116,14 +116,14 @@ function Copy-CommonArtifacts {
         [Parameter(Mandatory=$true)][string]$DestFolder
     )
     
-    # 2. Include Task Scheduler hooks
+    # 1. Include Task Scheduler hooks
     $taskSchdSource = Join-Path $ScriptDir "taskschd"
     if (Test-Path $taskSchdSource) {
         $taskSchdDest = Join-Path $DestFolder "taskschd"
         [void](New-Item -Path $taskSchdDest -ItemType Directory -Force)
 
         # Use Get-ChildItem -Recurse -Exclude to ensure the exclusion propagates to all levels
-        Get-ChildItem -Path $taskSchdSource -Recurse -Exclude 'smtp-cred.xml','*.dat','*.log' |
+        Get-ChildItem -Path $taskSchdSource -Recurse -Exclude 'smtp-cred.xml','*.dat','*.log', '*.test.ps1', 'temp.ps1' |
             Copy-Item -Destination {
                 Join-Path $taskSchdDest $_.FullName.Substring($taskSchdSource.Length).TrimStart('\')
             } -Force
@@ -135,7 +135,7 @@ function Copy-CommonArtifacts {
         }
     }
 
-    # 3. Include PowerShell Module artifacts with Test-Path guards
+    # 2. Include PowerShell Module artifacts with Test-Path guards
     $cliArtifacts = @("Servy.psm1", "Servy.psd1", "servy-module-examples.ps1")
     foreach ($art in $cliArtifacts) {
         $sourcePath = Join-Path $CliDir $art
@@ -176,8 +176,7 @@ function New-PortablePackage {
     # ROBUSTNESS: Use the call operator (&) instead of Start-Process -ArgumentList
     # to guarantee that parameters containing spaces (like OutputZip and PackageFolder) 
     # are correctly quoted by the PowerShell parser before native execution.
-    $exitCode = 0
-    & $SevenZipExe a -t7z -m0=lzma2 -mx=9 -ms=on $OutputZip $PackageFolder
+    & $SevenZipExe a -t7z -m0=lzma2 -mx=9 -mfb=273 -md=128m -ms=on $OutputZip $PackageFolder
     $exitCode = $LASTEXITCODE
 
     if ($exitCode -ne 0) {

@@ -1,7 +1,7 @@
 ﻿using Servy.Core.Config;
 using Servy.Core.DTOs;
 using Servy.Core.Services;
-using System.Xml.Serialization;
+using Servy.Core.UnitTests.Helpers;
 
 namespace Servy.Core.UnitTests.Services
 {
@@ -17,7 +17,7 @@ namespace Servy.Core.UnitTests.Services
         [InlineData("   ")]
         public void Deserialize_NullOrWhitespace_ReturnsNull(string? input)
         {
-            // Act
+            // Arrange & Act
             var result = _serializer.Deserialize(input);
 
             // Assert
@@ -104,13 +104,7 @@ namespace Servy.Core.UnitTests.Services
             };
 
             // Convert to XML string using the standard Serializer
-            var xmlSerializer = new XmlSerializer(typeof(ServiceDto));
-            string xml;
-            using (var sw = new StringWriter())
-            {
-                xmlSerializer.Serialize(sw, expected);
-                xml = sw.ToString();
-            }
+            var xml = ServiceDtoXml.Serialize(expected);
 
             // Act
             var actual = _serializer.Deserialize(xml);
@@ -170,7 +164,7 @@ namespace Servy.Core.UnitTests.Services
         [Fact]
         public void Serialize_NullDto_ReturnsNull()
         {
-            // Act
+            // Arrange & Act
             var result = _serializer.Serialize(null);
 
             // Assert
@@ -205,15 +199,13 @@ namespace Servy.Core.UnitTests.Services
         [Fact]
         public void Serialize_InvalidDtoStateOrSerializationFailure_CatchesExceptionAndReturnsNull()
         {
-            // Arrange: A broken initialization sequence that forces XmlSerializer to trip can be 
-            // simulated by passing a class type mapping variant that mismatches, but since ServiceDto 
-            // is basic, we force an invalid runtime structural parameter exception or corrupted data loop.
+            // Arrange
+            // Passing an undeclared derived type through an XmlSerializer instantiated for the base type
+            // natively forces an InvalidOperationException, exercising the internal try-catch fallback block.
             var invalidDto = new InvalidServiceDtoMock();
-            var serializer = new XmlSerializer(typeof(ServiceDto));
 
             // Act
-            // Passing an object that cannot be typed safely as ServiceDto into the cast block
-            var result = _serializer.Serialize(invalidDto as ServiceDto);
+            var result = _serializer.Serialize(invalidDto);
 
             // Assert
             Assert.Null(result);
@@ -223,11 +215,11 @@ namespace Servy.Core.UnitTests.Services
     }
 
     /// <summary>
-    /// Derived layout to simulate an un-serializable DTO variant for edge-case coverage.
+    /// Derived class designed to simulate an unexpected serialization type.
+    /// Serializing this runtime subtype through a standard base XmlSerializer(typeof(ServiceDto)) 
+    /// throws an InvalidOperationException because it lacks explicit XmlInclude configuration declarations.
     /// </summary>
     public class InvalidServiceDtoMock : ServiceDto
     {
-        // Shadowing with an un-serializable type block to force XmlSerializer exceptions
-        public new int Name { get; set; }
     }
 }

@@ -2,6 +2,7 @@
 using Servy.Core.Config;
 using Servy.Core.Enums;
 using Servy.Core.Services;
+using System.ComponentModel;
 using System.ServiceProcess;
 #if !DEBUG
 using Servy.Core.Logging;
@@ -112,10 +113,10 @@ namespace Servy.Core.Domain
         public ProcessPriority Priority { get; set; } = AppConfig.DefaultProcessPriority;
 
         /// <summary>
-        /// Whether to enable the console user interface for the service.
+        /// Gets or sets a value indicating whether to enable the console user interface for the service.
         /// When enabled, stdout/stderr redirection is disabled, and the service runs in a console window.
         /// </summary>
-        public bool EnableConsoleUI { get; set; }
+        public bool EnableConsoleUI { get; set; } = AppConfig.DefaultEnableConsoleUI;
 
         /// <summary>
         /// Gets or sets the optional file path for redirecting standard output.
@@ -145,12 +146,12 @@ namespace Servy.Core.Domain
         public bool EnableDateRotation { get; set; } = AppConfig.DefaultEnableDateRotation;
 
         /// <summary>
-        /// Gets or sets a value indicating date rotation type (stored as int, represents <see cref="Servy.Core.Enums.DateRotationType"/>).
+        /// Gets or sets the date-based log rotation interval.
         /// </summary>
         public DateRotationType DateRotationType { get; set; } = AppConfig.DefaultDateRotationType;
 
         /// <summary>
-        /// Maximum number of rotated log files to keep. 
+        /// Gets or sets the maximum number of rotated log files to keep. 
         /// Set to 0 for unlimited.
         /// </summary>
         public int MaxRotations { get; set; } = AppConfig.DefaultMaxRotations;
@@ -222,7 +223,7 @@ namespace Servy.Core.Domain
         public string? EnvironmentVariables { get; set; }
 
         /// <summary>
-        /// Gets or sets a comma-separated list of dependent service names.
+        /// Gets or sets a semicolon- or newline-separated list of dependent service names.
         /// </summary>
         public string? ServiceDependencies { get; set; }
 
@@ -291,28 +292,28 @@ namespace Servy.Core.Domain
         public bool PreLaunchIgnoreFailure { get; set; } = AppConfig.DefaultPreLaunchIgnoreFailure;
 
         /// <summary>
-        /// Optional path to an executable that runs after the service starts.
+        /// Gets or sets an optional path to an executable that runs after the service starts.
         /// </summary>
         public string? PostLaunchExecutablePath { get; set; }
 
         /// <summary>
-        /// Optional startup directory for the post-launch executable.
+        /// Gets or sets an optional startup directory for the post-launch executable.
         /// </summary>
         public string? PostLaunchStartupDirectory { get; set; }
 
         /// <summary>
-        /// Optional parameters for the post-launch executable.
+        /// Gets or sets optional parameters for the post-launch executable.
         /// </summary>
         public string? PostLaunchParameters { get; set; }
 
         /// <summary>
-        /// Whether debug logs are enabled.
+        /// Gets or sets a value indicating whether debug logs are enabled.
         /// When enabled, environment variables and process parameters are recorded in the local
         /// log file at <c>%ProgramData%\Servy\logs\Servy.Service.log</c>. Sensitive data is
         /// never written to the Windows Event Log or shown by the CLI / PowerShell module.
         /// Not recommended for production environments, as these logs may contain sensitive information.
         /// </summary>
-        public bool EnableDebugLogs { get; set; } = false;
+        public bool EnableDebugLogs { get; set; } = AppConfig.DefaultEnableDebugLogs;
 
         /// <summary>
         /// Gets or sets the timeout in seconds to wait for the process to start successfully before considering the startup as failed.
@@ -328,51 +329,51 @@ namespace Servy.Core.Domain
         /// Gets or sets the absolute file path where standard output is currently being redirected.
         /// Returns <see langword="null"/> if the service is not redirected or not running.
         /// </summary>
-        public string? ActiveStdoutPath { get; set; } = null;
+        public string? ActiveStdoutPath { get; set; }
 
         /// <summary>
         /// Gets or sets the absolute file path where standard error output is currently being redirected.
         /// Returns <see langword="null"/> if the service is not redirected or not running.
         /// </summary>
-        public string? ActiveStderrPath { get; set; } = null;
+        public string? ActiveStderrPath { get; set; }
 
         /// <summary>
-        /// Optional path to an executable that runs before the service stops.
+        /// Gets or sets an optional path to an executable that runs before the service stops.
         /// </summary>
         public string? PreStopExecutablePath { get; set; }
 
         /// <summary>
-        /// Optional startup directory for the pre-stop executable.
+        /// Gets or sets an optional startup directory for the pre-stop executable.
         /// </summary>
         public string? PreStopStartupDirectory { get; set; }
 
         /// <summary>
-        /// Optional parameters for the pre-stop executable.
+        /// Gets or sets optional parameters for the pre-stop executable.
         /// </summary>
         public string? PreStopParameters { get; set; }
 
         /// <summary>
-        /// Maximum time in seconds to wait for the pre-stop executable to complete.
+        /// Gets or sets the maximum time in seconds to wait for the pre-stop executable to complete.
         /// </summary>
         public int PreStopTimeoutSeconds { get; set; } = AppConfig.DefaultPreStopTimeoutSeconds;
 
         /// <summary>
-        /// Whether to log pre-stop failure as error.
+        /// Gets or sets a value indicating whether to log pre-stop failure as error.
         /// </summary>
-        public bool PreStopLogAsError { get; set; }
+        public bool PreStopLogAsError { get; set; } = AppConfig.DefaultPreStopLogAsError;
 
         /// <summary>
-        /// Optional path to an executable that runs after the service stops.
+        /// Gets or sets an optional path to an executable that runs after the service stops.
         /// </summary>
         public string? PostStopExecutablePath { get; set; }
 
         /// <summary>
-        /// Optional startup directory for the post-stop executable.
+        /// Gets or sets an optional startup directory for the post-stop executable.
         /// </summary>
         public string? PostStopStartupDirectory { get; set; }
 
         /// <summary>
-        /// Optional parameters for the post-stop executable.
+        /// Gets or sets optional parameters for the post-stop executable.
         /// </summary>
         public string? PostStopParameters { get; set; }
 
@@ -390,7 +391,7 @@ namespace Servy.Core.Domain
         /// </returns>
         public async Task<OperationResult> Start(CancellationToken cancellationToken = default)
         {
-            return await _serviceManager.StartServiceAsync(Name, logSuccessfulStart:true, cancellationToken);
+            return await _serviceManager.StartServiceAsync(Name, logSuccessfulStart: true, cancellationToken);
         }
 
         /// <summary>
@@ -403,7 +404,7 @@ namespace Servy.Core.Domain
         /// </returns>
         public async Task<OperationResult> Stop(CancellationToken cancellationToken = default)
         {
-            return await _serviceManager.StopServiceAsync(Name, logSuccessfulStop:true, cancellationToken);
+            return await _serviceManager.StopServiceAsync(Name, logSuccessfulStop: true, cancellationToken);
         }
 
         /// <summary>
@@ -416,7 +417,7 @@ namespace Servy.Core.Domain
         /// </returns>
         public async Task<OperationResult> Restart(CancellationToken cancellationToken = default)
         {
-            return await _serviceManager.RestartServiceAsync(Name, logSuccessfulRestart:true, cancellationToken);
+            return await _serviceManager.RestartServiceAsync(Name, logSuccessfulRestart: true, cancellationToken);
         }
 
         /// <summary>
@@ -429,12 +430,9 @@ namespace Servy.Core.Domain
         /// </returns>
         public ServiceControllerStatus? GetStatus(CancellationToken cancellationToken = default)
         {
-            if (IsInstalled(cancellationToken))
-            {
-                var status = _serviceManager.GetServiceStatus(Name, cancellationToken);
-                return status;
-            }
-            return null;
+            // Bypassed independent IsInstalled pre-check to resolve the TOCTOU window vulnerability.
+            // Delegate status resolution directly to a single-query path that returns null safely on missing services.
+            return _serviceManager.GetServiceStatus(Name, cancellationToken);
         }
 
         /// <summary>
@@ -583,6 +581,7 @@ namespace Servy.Core.Domain
         /// A task that represents the asynchronous uninstall operation. The task result 
         /// is <see cref="OperationResult"/> describing whether the uninstall succeeded
         /// (<see cref="OperationResult.Success"/>) along with any failure context.
+        /// </returns>
         /// <exception cref="ArgumentNullException">
         /// Thrown if <see cref="Name"/> is null or empty.
         /// </exception>
@@ -596,6 +595,5 @@ namespace Servy.Core.Domain
         }
 
         #endregion
-
     }
 }

@@ -29,14 +29,9 @@ namespace Servy.UI.Bootstrapping
     [ExcludeFromCodeCoverage] // This class is inherently difficult to unit test due to its tight coupling with WPF application lifecycle and static dependencies.
     public class AppBootstrapper
     {
-        #region Private Static Fields
-
-        private static readonly object _errorDialogLock = new object();
-
-        #endregion
-
         #region Private Fields
 
+        private readonly object _errorDialogLock = new object();
         private readonly BootstrapperOptions _options;
         private readonly IProcessKiller _processKiller;
         private IConfiguration? _configuration;
@@ -149,9 +144,11 @@ namespace Servy.UI.Bootstrapping
 
                 if (args.Exception is OutOfMemoryException)
                 {
-                    Logger.Error("Non-recoverable OutOfMemoryException detected. Shutting down.");
+                    // ROBUSTNESS CRASH STRATEGY: Intentionally let the process fail-fast on OOM.
+                    // Dropping the dead app.Shutdown call allows the exception to bubble up naturally
+                    // and trigger OS-level diagnostic handlers rather than hanging on a stalled event pump.
+                    Logger.Error("Non-recoverable OutOfMemoryException detected. Terminating process pipeline.");
                     args.Handled = false;
-                    app.Shutdown(1);
                     return;
                 }
 
@@ -275,8 +272,9 @@ namespace Servy.UI.Bootstrapping
                 {
                     try
                     {
+                        // Consolidated Fault Handling UI layer using localized resources consistently
                         MessageBox.Show(
-                            $"Critical Startup Fault: {ex.Message}",
+                            string.Format(Strings.Msg_StartupError_Format, ex.Message),
                             caption,
                             MessageBoxButton.OK,
                             MessageBoxImage.Error);
@@ -300,23 +298,24 @@ namespace Servy.UI.Bootstrapping
         {
             string? serviceName = null;
             var showSplash = true;
+            var positionalArgs = e.Args.Where(arg => !arg.Equals(AppConfig.ForceSoftwareRenderingArg, StringComparison.OrdinalIgnoreCase)).ToList();
 
-            if (e.Args != null)
+            if (positionalArgs.Count > 0)
             {
-                var positionalArgs = e.Args.Where(arg => !arg.Equals(AppConfig.ForceSoftwareRenderingArg, StringComparison.OrdinalIgnoreCase)).ToList();
-
-                if (positionalArgs.Count > 0)
+                if (string.Equals(positionalArgs[0], AppConfig.SkipSplashArgument, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (bool.TryParse(positionalArgs[0], out var parsed))
-                    {
-                        showSplash = parsed;
-                        if (positionalArgs.Count > 1) serviceName = positionalArgs[1];
-                    }
-                    else
-                    {
-                        // First arg isn't a splash flag - assume it is the service name.
-                        serviceName = positionalArgs[0];
-                    }
+                    showSplash = false;
+                    if (positionalArgs.Count > 1) serviceName = positionalArgs[1];
+                }
+                else if (bool.TryParse(positionalArgs[0], out var parsed))
+                {
+                    showSplash = parsed;
+                    if (positionalArgs.Count > 1) serviceName = positionalArgs[1];
+                }
+                else
+                {
+                    // First arg isn't a splash flag - assume it is the service name.
+                    serviceName = positionalArgs[0];
                 }
             }
 
@@ -363,7 +362,7 @@ namespace Servy.UI.Bootstrapping
                     var resourceHelper = new ResourceHelper(sh, _processKiller);
 
                     // Copy embedded files
-                    if (!await resourceHelper.CopyEmbeddedResource(asm, _options.ResourcesNamespace!, AppConfig.ServyServiceUIFileName, "exe"))
+                    if (!await resourceHelper.CopyEmbeddedResource(asm, _options.ResourcesNamespace!, AppConfig.ServyServiceUIFileName, "exe", cancellationToken: CancellationToken.None))
                     {
                         string resourceName = $"{AppConfig.ServyServiceUIFileName}.exe";
                         throw new InvalidOperationException($"Failed to extract embedded resource '{resourceName}'. " +
@@ -374,7 +373,7 @@ namespace Servy.UI.Bootstrapping
                         ? AppConfig.HandleExeARM64FileName
                         : AppConfig.HandleExeX64FileName;
 
-                    if (!await resourceHelper.CopyEmbeddedResource(asm, _options.ResourcesNamespace!, handleExeFileName, "exe", false))
+                    if (!await resourceHelper.CopyEmbeddedResource(asm, _options.ResourcesNamespace!, handleExeFileName, "exe", false, cancellationToken: CancellationToken.None))
                     {
                         string resourceName = $"{handleExeFileName}.exe";
                         Logger.Warn($"Failed to extract embedded resource '{resourceName}'. " +
@@ -383,7 +382,7 @@ namespace Servy.UI.Bootstrapping
                     }
 
 #if DEBUG
-                    await resourceHelper.CopyEmbeddedResource(asm, _options.ResourcesNamespace!, AppConfig.ServyServiceUIFileName, "pdb", false);
+                    await resourceHelper.CopyEmbeddedResource(asm, _options.ResourcesNamespace!, AppConfig.ServyServiceUIFileName, "pdb", false, cancellationToken: CancellationToken.None);
 #endif
                     stopwatch.Stop();
 
@@ -405,9 +404,9 @@ namespace Servy.UI.Bootstrapping
             }
             catch (Exception ex)
             {
-                Logger.Error("Startup error", ex);
-                MessageBox.Show(string.Format(Strings.Msg_StartupError_Format, ex.Message));
-                app.Shutdown(1); // Signal failure to the OS
+                // Rethrow the exception after tracking it to let the upper-level fault handling wrapper catch it deterministically.
+                Logger.Error("Startup initialization failed", ex);
+                throw;
             }
             finally
             {
@@ -581,7 +580,7 @@ namespace Servy.UI.Bootstrapping
             }
             catch (Exception ex)
             {
-                // We use Warn here because failure to dispose at exit is rarely 
+                // We use Warn here because failure to dispose at exit is rarely
                 // fatal but should be noted for debugging resource leaks.
                 Logger.Warn($"{name} cleanup failed", ex);
             }

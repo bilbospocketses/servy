@@ -1,4 +1,7 @@
-﻿using Servy.Core.EnvironmentVariables;
+﻿using System;
+using System.Linq;
+using Servy.Core.EnvironmentVariables;
+using Xunit;
 
 namespace Servy.Core.UnitTests.EnvironmentVariables
 {
@@ -69,6 +72,38 @@ namespace Servy.Core.UnitTests.EnvironmentVariables
             Assert.Equal("line1\\\nline2", result[0]);
         }
 
+        /// <summary>
+        /// CONSOLIDATION VARIATION: Ported and unified from internal parser/validator test classes
+        /// to comprehensively cover boundary limits, single/multiple backslash loops, and index shifts.
+        /// </summary>
+        [Theory]
+        // No delimiter
+        [InlineData("abc", new[] { '=' }, new[] { "abc" })]
+        // Unescaped delimiter
+        [InlineData("a=b", new[] { '=' }, new[] { "a", "b" })]
+        // Escaped delimiter (odd backslashes)
+        [InlineData(@"a\=b", new[] { '=' }, new[] { @"a\=b" })]
+        // Even backslashes -> Delimiter remains unescaped
+        [InlineData(@"a\\=b", new[] { '=' }, new[] { @"a\\", "b" })]
+        // Multiple unescaped delimiters
+        [InlineData("a=b=c", new[] { '=' }, new[] { "a", "b", "c" })]
+        // Trailing delimiter
+        [InlineData("a=", new[] { '=' }, new[] { "a", "" })]
+        // Delimiter at index 0 (j < 0 loop path check)
+        [InlineData("=a", new[] { '=' }, new[] { "", "a" })]
+        // Loop runs multiple times (triple backslashes)
+        [InlineData(@"a\\\=b", new[] { '=' }, new[] { @"a\\\=b" })]
+        // Multiple variations of delimiters mixed together
+        [InlineData(@"a=b\;c;d", new[] { '=', ';' }, new[] { "a", @"b\;c", "d" })]
+        public void SplitByUnescapedDelimiters_ConsolidatedMatrix_VaryingDelimitersAndEscapes(string input, char[] delimiters, string[] expected)
+        {
+            // Arrange & Act
+            var result = EscapedTokenizer.SplitByUnescapedDelimiters(input, delimiters);
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
         #endregion
 
         #region IndexOfUnescapedChar Tests
@@ -84,29 +119,8 @@ namespace Servy.Core.UnitTests.EnvironmentVariables
         [InlineData("abc", '=', -1)]
         public void IndexOfUnescapedChar_BranchCoverage_ReturnsExpectedIndex(string input, char ch, int expected)
         {
-            // Act
+            // Arrange & Act
             int result = EscapedTokenizer.IndexOfUnescapedChar(input, ch);
-
-            // Assert
-            Assert.Equal(expected, result);
-        }
-
-        #endregion
-
-        #region CountUnescapedChar Tests
-
-        /// <summary>
-        /// Verifies that <see cref="EscapedTokenizer.CountUnescapedChar"/> only increments for unescaped occurrences.
-        /// </summary>
-        [Theory]
-        [InlineData("a;b;c", ';', 2)]
-        [InlineData("a\\;b;c", ';', 1)]
-        [InlineData("a\\;b\\;c", ';', 0)]
-        [InlineData("\\\\;\\\\;", ';', 2)] // Even backslashes are unescaped
-        public void CountUnescapedChar_BranchCoverage_ReturnsCorrectCount(string input, char ch, int expected)
-        {
-            // Act
-            int result = EscapedTokenizer.CountUnescapedChar(input, ch);
 
             // Assert
             Assert.Equal(expected, result);
@@ -124,16 +138,13 @@ namespace Servy.Core.UnitTests.EnvironmentVariables
         [InlineData("", "")]
         public void Unescape_EmptyInput_ReturnsEmptyString(string? input, string expected)
         {
-            // Act
+            // Arrange & Act
             var result = EscapedTokenizer.Unescape(input!);
 
             // Assert
             Assert.Equal(expected, result);
         }
 
-        /// <summary>
-        /// Verifies the fix for #1114, ensuring escaped newlines and carriage returns are properly unescaped.
-        /// </summary>
         /// <summary>
         /// Verifies the fix for #1114, ensuring literal newlines and carriage returns 
         /// preceded by an escape character have the escape backslash stripped.
@@ -143,12 +154,14 @@ namespace Servy.Core.UnitTests.EnvironmentVariables
         [InlineData("val1\\=val2", "val1=val2")]
         [InlineData("val1\\\\val2", "val1\\val2")]
         [InlineData("val1\\\"val2", "val1\"val2")]
-        // Using literal newlines/CRs to match the logic in EscapedTokenizer.cs
         [InlineData("line1\\\nline2", "line1\nline2")] // Literal backslash + actual LF
         [InlineData("line1\\\rline2", "line1\rline2")] // Literal backslash + actual CR
+        // DUPLICATION FIX: Folded the unique sequential consecutive \r\n double-continuation path directly into 
+        // this method matrix to entirely drop the redundant Unescape_LiteralControlLineBreakContinuations method.
+        [InlineData("ValueWith\\\r\\\nDoubleContinuation", "ValueWith\r\nDoubleContinuation")]
         public void Unescape_KnownEscapes_StripsBackslash(string input, string expected)
         {
-            // Act
+            // Arrange & Act
             var result = EscapedTokenizer.Unescape(input);
 
             // Assert
@@ -163,7 +176,7 @@ namespace Servy.Core.UnitTests.EnvironmentVariables
         [InlineData("escape\\x", "escape\\x")]
         public void Unescape_UnknownEscapes_PreservesBackslash(string input, string expected)
         {
-            // Act
+            // Arrange & Act
             var result = EscapedTokenizer.Unescape(input);
 
             // Assert
@@ -171,19 +184,19 @@ namespace Servy.Core.UnitTests.EnvironmentVariables
         }
 
         /// <summary>
-        /// Verifies that a trailing backslash is preserved literally.
+        /// Ensures that trailing escape symbols at the absolute bounds of an input boundary string 
+        /// fail closed and preserve the structural symbol literally instead of truncating or throwing out-of-bounds exceptions.
         /// </summary>
-        [Fact]
-        public void Unescape_TrailingBackslash_PreservesBackslash()
+        [Theory]
+        [InlineData("trailing\\", "trailing\\")]
+        [InlineData("MalformedValue\\", "MalformedValue\\")]
+        public void Unescape_TrailingBackslashAtStringBounds_PreservesBackslash(string input, string expected)
         {
-            // Arrange
-            string input = "trailing\\";
-
-            // Act
+            // Arrange & Act
             var result = EscapedTokenizer.Unescape(input);
 
             // Assert
-            Assert.Equal("trailing\\", result);
+            Assert.Equal(expected, result);
         }
 
         /// <summary>
@@ -191,10 +204,9 @@ namespace Servy.Core.UnitTests.EnvironmentVariables
         /// CR and LF control characters as part of the token value rather than splitting records on them.
         /// </summary>
         [Fact]
-        public void SplitByUnescapedDelimiters_LiteralEscapedControlLineBreaks_DoesNotSplit()
+        public void SplitByUnescapedDelimiters_KeepsEscapedControlLineBreaksInternal()
         {
             // Arrange
-            // Explicitly embedding literal escaped control character sequences into a single structural block
             string input = "KEY1\\=value1\\;contains\\\r\\\ncontinued;KEY2\\=value2";
 
             // Act
@@ -203,44 +215,9 @@ namespace Servy.Core.UnitTests.EnvironmentVariables
                 .ToList();
 
             // Assert
-            // The unescaped semicolon should break this into 2 records; the escaped CR/LF must stay internal
             Assert.Equal(2, tokens.Count);
             Assert.Contains("KEY1\\=value1\\;contains\\\r\\\ncontinued", tokens[0]);
             Assert.Equal("KEY2\\=value2", tokens[1]);
-        }
-
-        /// <summary>
-        /// Verifies that Unescape preserves and flushes a literal CR or LF control character when 
-        /// it acts as a line continuation directly following an escaping backslash sequence.
-        /// </summary>
-        [Theory]
-        [InlineData("ValueWith\\\rContinuation", "ValueWith\rContinuation")]
-        [InlineData("ValueWith\\\nContinuation", "ValueWith\nContinuation")]
-        [InlineData("ValueWith\\\r\\\nDoubleContinuation", "ValueWith\r\nDoubleContinuation")]
-        public void Unescape_LiteralControlLineBreakContinuations_PreservesControlBytes(string input, string expected)
-        {
-            // Act
-            string result = EscapedTokenizer.Unescape(input);
-
-            // Assert
-            Assert.Equal(expected, result);
-        }
-
-        /// <summary>
-        /// Ensures that trailing escape symbols at the absolute bounds of an input boundary string 
-        /// fail closed and preserve the structural symbol literally instead of truncating or throwing.
-        /// </summary>
-        [Fact]
-        public void Unescape_TrailingEscapeAtStringBounds_PreservesBackslash()
-        {
-            // Arrange
-            string input = "MalformedValue\\";
-
-            // Act
-            string result = EscapedTokenizer.Unescape(input);
-
-            // Assert
-            Assert.Equal("MalformedValue\\", result);
         }
 
         /// <summary>
@@ -251,14 +228,12 @@ namespace Servy.Core.UnitTests.EnvironmentVariables
         public void IndexOfUnescapedChar_EscapedVsUnescapedTargets_LocatesCorrectIndex()
         {
             // Arrange
-            // First '=' is hidden behind an escape; second '=' is structurally active
             string input = "PREFIX\\=HIDDEN=VALID_VALUE";
 
             // Act
             int index = EscapedTokenizer.IndexOfUnescapedChar(input, '=');
 
             // Assert
-            // "PREFIX\=HIDDEN" is 14 chars long; index of unescaped '=' should be 14
             Assert.Equal(14, index);
             Assert.Equal('=', input[index]);
         }

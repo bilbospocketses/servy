@@ -196,7 +196,7 @@ namespace Servy.Core.UnitTests.Security
 
         [Theory]
         [InlineData("")]
-        public void Decrypt_Empty_ThrowsArgumentNullException(string? input)
+        public void Decrypt_Empty_ThrowsArgumentException(string? input)
         {
             // Arrange
             var sp = new SecureData(_mockProvider.Object);
@@ -310,8 +310,8 @@ namespace Servy.Core.UnitTests.Security
             var tampered = "SERVY_ENC:v2:!!!NotBase64!!!";
 
             // Act & Assert
-            // We expect a FormatException (from Base64 decoding) or a 
-            // SecureDataIntegrityException if you chose to wrap it.
+            // Invalid Base64 strings must always be caught and wrapped by the cryptographic 
+            // provider to guarantee a deterministic SecureDataIntegrityException surface.
             Assert.Throws<SecureDataIntegrityException>(() => sp.Decrypt(tampered));
         }
 
@@ -336,7 +336,7 @@ namespace Servy.Core.UnitTests.Security
         {
             var sp = new SecureData(_mockProvider.Object);
 
-            // A v2 payload must be at least 48 bytes (16 IV + 32 HMAC + Ciphertext)
+            // A v2 payload must be at least 48 bytes (16-byte IV + 32-byte HMAC); ciphertext is additional.
             // We provide only 10 bytes here.
             var shortPayloadBase64 = Convert.ToBase64String(new byte[10]);
 
@@ -457,27 +457,24 @@ namespace Servy.Core.UnitTests.Security
 
         private T GetPrivateField<T>(object obj, string fieldName)
         {
-            var field = obj.GetType().GetField(fieldName,
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            return (T)field!.GetValue(obj)!;
-        }
+            var type = obj.GetType();
+            System.Reflection.FieldInfo? fieldInfo = null;
 
-        #endregion
+            // Walk up the inheritance hierarchy until the private field is found
+            while (type != null && fieldInfo == null)
+            {
+                fieldInfo = type.GetField(fieldName, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                type = type.BaseType;
+            }
 
-        #region Helper Tests (Reflection)
+            // Explicit null check guarantees safety to the compiler before calling GetValue
+            if (fieldInfo == null)
+            {
+                throw new ArgumentException($"Field '{fieldName}' could not be found on type {obj.GetType().Name} or its base classes.");
+            }
 
-        [Theory]
-        [InlineData("", false)]
-        [InlineData("   ", false)]
-        [InlineData("Invalid!", false)]
-        [InlineData("SGVsbG8=", true)]
-        public void IsStrictBase64_Internal_MatchesExpected(string input, bool expected)
-        {
-            var method = typeof(SecureData).GetMethod("IsStrictBase64",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-
-            var result = (bool)method!.Invoke(null, new object[] { input })!;
-            Assert.Equal(expected, result);
+            // fieldInfo is safely determined to be non-null here
+            return (T)fieldInfo.GetValue(obj)!;
         }
 
         #endregion
@@ -503,10 +500,8 @@ namespace Servy.Core.UnitTests.Security
         // Branch 4: Misplaced Padding ('=' not at the end)
         [InlineData("=abc", false)]      // Start
         [InlineData("a=bc", false)]      // Middle
-        [InlineData("ab=c", false)]      // Second to last (valid if at end, but here it's followed by 'c')
-                                         // Note: Base64 allows up to 2 padding chars at the very end (e.g., "aa==")
-                                         // This check: paddingIndex < value.Length - 2 specifically catches "=" in the first half 
-                                         // of a 4-char block.
+        [InlineData("ab=c", false)]      // '=' is second-to-last but the final char isn't '=' (rejected by the
+                                         // "trailing padding must be contiguous at the end" rule, not by paddingIndex < length-2)
 
         // Branch 5: Valid Base64 (The "Success" return)
         [InlineData("SGVsbG8=", true)]   // 1 padding
@@ -523,21 +518,6 @@ namespace Servy.Core.UnitTests.Security
             var result = (bool)method!.Invoke(null, new object[] { input! })!;
 
             // Assert
-            Assert.Equal(expected, result);
-        }
-
-        [Theory]
-        [InlineData("ab=c", false)]  // Misplaced padding (middle) - Now fails correctly
-        [InlineData("=abc", false)]  // Misplaced padding (start)
-        [InlineData("abc=", true)]   // Valid padding (end)
-        [InlineData("ab==", true)]   // Valid double padding (end)
-        [InlineData("SGVsbG8=", true)] // Standard valid Base64
-        public void IsStrictBase64_BranchCoverage(string input, bool expected)
-        {
-            var method = typeof(SecureData).GetMethod("IsStrictBase64",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-
-            var result = (bool)method!.Invoke(null, new object[] { input })!;
             Assert.Equal(expected, result);
         }
 

@@ -59,7 +59,7 @@ namespace Servy.Core.UnitTests.Mappers
                 EnableDateRotation = true,
                 DateRotationType = (int)DateRotationType.Weekly,
                 MaxRotations = 5,
-                UseLocalTimeForRotation = true, // Added
+                UseLocalTimeForRotation = true, 
                 EnableDebugLogs = true,
                 EnableHealthMonitoring = false,
                 HeartbeatInterval = 90,
@@ -86,16 +86,16 @@ namespace Servy.Core.UnitTests.Mappers
                 PostLaunchExecutablePath = @"C:\apps\post_launch\post_launch.exe",
                 PostLaunchParameters = "--post-param1",
                 PostLaunchStartupDirectory = @"C:\apps\post_launch\",
-                StartTimeout = 40, // Added
-                StopTimeout = 50,  // Added
-                PreStopExecutablePath = @"C:\prestop.exe", // Added
-                PreStopStartupDirectory = @"C:\prestop",    // Added
-                PreStopParameters = "-pre-stop",           // Added
-                PreStopTimeoutSeconds = 15,                // Added
-                PreStopLogAsError = true,                 // Added
-                PostStopExecutablePath = @"C:\poststop.exe", // Added
-                PostStopStartupDirectory = @"C:\poststop",   // Added
-                PostStopParameters = "-post-stop"           // Added
+                StartTimeout = 40, 
+                StopTimeout = 50,  
+                PreStopExecutablePath = @"C:\prestop.exe", 
+                PreStopStartupDirectory = @"C:\prestop",    
+                PreStopParameters = "-pre-stop",           
+                PreStopTimeoutSeconds = 15,                
+                PreStopLogAsError = true,                 
+                PostStopExecutablePath = @"C:\poststop.exe", 
+                PostStopStartupDirectory = @"C:\poststop",   
+                PostStopParameters = "-post-stop"           
             };
 
             // Act
@@ -116,7 +116,7 @@ namespace Servy.Core.UnitTests.Mappers
             Assert.Equal(dto.EnableDateRotation, service.EnableDateRotation);
             Assert.Equal(dto.DateRotationType, (int)service.DateRotationType);
             Assert.Equal(dto.MaxRotations, service.MaxRotations);
-            Assert.Equal(dto.UseLocalTimeForRotation, service.UseLocalTimeForRotation); // Added
+            Assert.Equal(dto.UseLocalTimeForRotation, service.UseLocalTimeForRotation); 
             Assert.Equal(dto.EnableDebugLogs, service.EnableDebugLogs);
             Assert.Equal(dto.EnableHealthMonitoring, service.EnableHealthMonitoring);
             Assert.Equal(dto.HeartbeatInterval, service.HeartbeatInterval);
@@ -205,77 +205,8 @@ namespace Servy.Core.UnitTests.Mappers
             };
 
             // Act & Assert
-            // We wrap the call in a lambda. Assert.Throws will catch the exception 
-            // and fail the test if the exception is not thrown.
             var ex = Assert.Throws<ArgumentNullException>(() => ServiceMapper.ToDomain(null!, dto));
-
-            // Optional: Verify which parameter caused the exception
             Assert.Equal("serviceManager", ex.ParamName);
-        }
-
-        [Fact]
-        public void ToDomain_AllValuesSet_UsesDtoValues()
-        {
-            var dto = new ServiceDto
-            {
-                Name = "MyService",
-                Description = "Desc",
-                ExecutablePath = "C:\\service.exe",
-                StartupDirectory = "C:\\",
-                Parameters = "-arg",
-                StartupType = (int)ServiceStartType.Manual,
-                Priority = (int)ProcessPriority.High,
-                StdoutPath = "stdout.log",
-                StderrPath = "stderr.log",
-                EnableSizeRotation = true,
-                RotationSize = 1234,
-                EnableHealthMonitoring = true,
-                HeartbeatInterval = 99,
-                MaxFailedChecks = 5,
-                RecoveryAction = (int)RecoveryAction.RestartService,
-                MaxRestartAttempts = 7,
-                EnvironmentVariables = "key=val",
-                ServiceDependencies = "dep1;dep2",
-                RunAsLocalSystem = false,
-                UserAccount = "user",
-                Password = "pwd",
-                PreLaunchExecutablePath = "pre.exe",
-                PreLaunchStartupDirectory = "C:\\pre",
-                PreLaunchParameters = "-prearg",
-                PreLaunchEnvironmentVariables = "prekey=preval",
-                PreLaunchStdoutPath = "preout.log",
-                PreLaunchStderrPath = "preerr.log",
-                PreLaunchTimeoutSeconds = 77,
-                PreLaunchRetryAttempts = 9,
-                PreLaunchIgnoreFailure = true
-            };
-
-            var service = ServiceMapper.ToDomain(_serviceManagerMock.Object, dto);
-
-            Assert.Equal(ServiceStartType.Manual, service.StartupType);
-            Assert.Equal(ProcessPriority.High, service.Priority);
-            Assert.True(service.EnableSizeRotation);
-            Assert.Equal(1234, service.RotationSize);
-            Assert.True(service.EnableHealthMonitoring);
-            Assert.Equal(99, service.HeartbeatInterval);
-            Assert.Equal(5, service.MaxFailedChecks);
-            Assert.Equal(RecoveryAction.RestartService, service.RecoveryAction);
-            Assert.Equal(7, service.MaxRestartAttempts);
-            Assert.False(service.RunAsLocalSystem);
-            Assert.Equal(77, service.PreLaunchTimeoutSeconds);
-            Assert.Equal(9, service.PreLaunchRetryAttempts);
-            Assert.True(service.PreLaunchIgnoreFailure);
-
-            Assert.Equal(dto.EnvironmentVariables, service.EnvironmentVariables);
-            Assert.Equal(dto.ServiceDependencies, service.ServiceDependencies);
-            Assert.Equal(dto.UserAccount, service.UserAccount);
-            Assert.Equal(dto.Password, service.Password);
-            Assert.Equal(dto.PreLaunchExecutablePath, service.PreLaunchExecutablePath);
-            Assert.Equal(dto.PreLaunchStartupDirectory, service.PreLaunchStartupDirectory);
-            Assert.Equal(dto.PreLaunchParameters, service.PreLaunchParameters);
-            Assert.Equal(dto.PreLaunchEnvironmentVariables, service.PreLaunchEnvironmentVariables);
-            Assert.Equal(dto.PreLaunchStdoutPath, service.PreLaunchStdoutPath);
-            Assert.Equal(dto.PreLaunchStderrPath, service.PreLaunchStderrPath);
         }
 
         [Fact]
@@ -367,28 +298,35 @@ namespace Servy.Core.UnitTests.Mappers
         }
 
         [Fact]
-        public void GetStatus_ReturnsStatus_WhenServiceIsInstalled()
+        public void GetStatus_ReturnsNull_WhenServiceIsNotInstalled()
         {
-            _serviceManagerMock.Setup(sm => sm.IsServiceInstalled("TestService", It.IsAny<CancellationToken>())).Returns(true);
-            _serviceManagerMock.Setup(sm => sm.GetServiceStatus("TestService", It.IsAny<CancellationToken>())).Returns(ServiceControllerStatus.Running);
+            // Arrange
+            _serviceManagerMock.Setup(sm => sm.GetServiceStatus("TestService", It.IsAny<CancellationToken>()))
+                               .Returns((ServiceControllerStatus?)null);
 
+            // Act
             var result = _service.GetStatus(TestContext.Current.CancellationToken);
 
-            Assert.Equal(ServiceControllerStatus.Running, result);
-            _serviceManagerMock.Verify(sm => sm.IsServiceInstalled("TestService", It.IsAny<CancellationToken>()), Times.Once);
+            // Assert
+            Assert.Null(result);
             _serviceManagerMock.Verify(sm => sm.GetServiceStatus("TestService", It.IsAny<CancellationToken>()), Times.Once);
+            _serviceManagerMock.Verify(sm => sm.IsServiceInstalled(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
         }
 
         [Fact]
-        public void GetStatus_ReturnsNull_WhenServiceIsNotInstalled()
+        public void GetStatus_ReturnsStatus_WhenServiceIsInstalled()
         {
-            _serviceManagerMock.Setup(sm => sm.IsServiceInstalled("TestService", It.IsAny<CancellationToken>())).Returns(false);
+            // Arrange
+            _serviceManagerMock.Setup(sm => sm.GetServiceStatus("TestService", It.IsAny<CancellationToken>()))
+                               .Returns(ServiceControllerStatus.Running);
 
+            // Act
             var result = _service.GetStatus(TestContext.Current.CancellationToken);
 
-            Assert.Null(result);
-            _serviceManagerMock.Verify(sm => sm.IsServiceInstalled("TestService", It.IsAny<CancellationToken>()), Times.Once);
-            _serviceManagerMock.Verify(sm => sm.GetServiceStatus(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            // Assert
+            Assert.Equal(ServiceControllerStatus.Running, result);
+            _serviceManagerMock.Verify(sm => sm.GetServiceStatus("TestService", It.IsAny<CancellationToken>()), Times.Once);
+            _serviceManagerMock.Verify(sm => sm.IsServiceInstalled(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
         }
 
         [Fact]

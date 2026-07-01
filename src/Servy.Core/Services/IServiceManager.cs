@@ -1,8 +1,8 @@
 ﻿using Servy.Core.Common;
 using Servy.Core.DTOs;
 using Servy.Core.Enums;
-using System.ServiceProcess;
 using System.ComponentModel;
+using System.ServiceProcess;
 
 namespace Servy.Core.Services
 {
@@ -30,7 +30,9 @@ namespace Servy.Core.Services
     {
         /// <summary>
         /// Installs a Windows service using a wrapper executable that launches the real target executable
-        /// with specified arguments and working directory.
+        /// with specified arguments and working directory. If a linguistically identical service name variant 
+        /// exists in the database under a different casing layout, it automatically uninstalls the legacy OS instance 
+        /// to prevent duplicate task forks.
         /// </summary>
         /// <param name="options">The options containing all configuration parameters for the service installation, including paths, names, and environment variables.</param>
         /// <param name="cancellationToken">A <see cref="CancellationToken"/> to observe while waiting for the installation to complete.</param>
@@ -58,6 +60,8 @@ namespace Servy.Core.Services
         /// <param name="logSuccessfulStart">Indicates whether to log a success message once the service has successfully reached the running state.</param>
         /// <param name="cancellationToken">A <see cref="CancellationToken"/> to cancel the start request or the wait loop.</param>
         /// <returns>An <see cref="OperationResult"/> indicating if the start sequence and optional wait period completed successfully.</returns>
+        /// <exception cref="InvalidOperationException">Thrown if the required service repository has not been initialized.</exception>
+        /// <exception cref="ArgumentException">Thrown if <paramref name="serviceName"/> is null, empty, or only contains whitespace.</exception>
         Task<OperationResult> StartServiceAsync(string? serviceName, bool logSuccessfulStart = true, CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -67,6 +71,8 @@ namespace Servy.Core.Services
         /// <param name="logSuccessfulStop">Indicates whether to log a success message once the service has successfully reached the stopped state.</param>
         /// <param name="cancellationToken">A <see cref="CancellationToken"/> to cancel the stop request or the wait loop.</param>
         /// <returns>An <see cref="OperationResult"/> indicating if the stop sequence and optional wait period completed successfully.</returns>
+        /// <exception cref="InvalidOperationException">Thrown if the required service repository has not been initialized.</exception>
+        /// <exception cref="ArgumentException">Thrown if <paramref name="serviceName"/> is null, empty, or only contains whitespace.</exception>
         Task<OperationResult> StopServiceAsync(string? serviceName, bool logSuccessfulStop = true, CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -76,15 +82,21 @@ namespace Servy.Core.Services
         /// <param name="logSuccessfulRestart">Indicates whether to log a success message once the full restart cycle is complete.</param>
         /// <param name="cancellationToken">A <see cref="CancellationToken"/> used to cancel any part of the restart sequence.</param>
         /// <returns>An <see cref="OperationResult"/> indicating if the entire stop-and-start sequence completed successfully.</returns>
+        /// <exception cref="InvalidOperationException">Thrown if the required service repository has not been initialized.</exception>
+        /// <exception cref="ArgumentException">Thrown if <paramref name="serviceName"/> is null, empty, or only contains whitespace.</exception>
         Task<OperationResult> RestartServiceAsync(string? serviceName, bool logSuccessfulRestart = true, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Gets the current status of the specified Windows service by querying the Service Control Manager.
+        /// Retrieves the current status of the specified Windows service.
         /// </summary>
         /// <param name="serviceName">The unique name of the service to interrogate.</param>
         /// <param name="cancellationToken">Optional cancellation token for the status query.</param>
-        /// <returns>The current <see cref="ServiceControllerStatus"/> of the service (e.g., Running, Stopped, Paused).</returns>
-        ServiceControllerStatus GetServiceStatus(string? serviceName, CancellationToken cancellationToken = default);
+        /// <returns>
+        /// A <see cref="ServiceControllerStatus"/> value representing the current status, 
+        /// or <c>null</c> if the service was not found or has been uninstalled.
+        /// </returns>
+        /// <exception cref="ArgumentException">Thrown if <paramref name="serviceName"/> is null, empty, or only contains whitespace.</exception>
+        ServiceControllerStatus? GetServiceStatus(string? serviceName, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Determines whether a Windows service with the specified name is currently installed on the local machine.
@@ -95,6 +107,7 @@ namespace Servy.Core.Services
         /// <c>true</c> if a service with the specified name exists in the SCM; 
         /// otherwise, <c>false</c>.
         /// </returns>
+        /// <exception cref="ArgumentException">Thrown if <paramref name="serviceName"/> is null, empty, or only contains whitespace.</exception>
         bool IsServiceInstalled(string? serviceName, CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -103,15 +116,17 @@ namespace Servy.Core.Services
         /// <param name="serviceName">The unique internal name of the Windows service.</param>
         /// <param name="cancellationToken">Optional cancellation token for the configuration query.</param>
         /// <returns>
-        /// A <see cref="ServiceStartType"/> value if the service is found; otherwise, <c>null</c>.
+        /// A <see cref="ServiceStartType"/> value if the service is found; otherwise, <see cref="ServiceStartType.Unknown"/>.
         /// </returns>
-        ServiceStartType? GetServiceStartupType(string? serviceName, CancellationToken cancellationToken = default);
+        /// <exception cref="ArgumentException">Thrown if <paramref name="serviceName"/> is null, empty, or only contains whitespace.</exception>
+        ServiceStartType GetServiceStartupType(string? serviceName, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Retrieves all Windows services registered on the local machine and maps them to high-level <see cref="ServiceInfo"/> objects.
         /// </summary>
         /// <param name="cancellationToken">A <see cref="CancellationToken"/> to observe while enumerating services.</param>
         /// <returns>A list of <see cref="ServiceInfo"/> objects representing all found services, including status, startup types, and descriptions.</returns>
+        /// <exception cref="Win32Exception">Thrown if opening the Service Control Manager fails via native APIs.</exception>
         List<ServiceInfo> GetAllServices(CancellationToken cancellationToken = default);
 
         /// <summary>
@@ -122,8 +137,12 @@ namespace Servy.Core.Services
         /// <param name="serviceName">The unique internal name of the service.</param>
         /// <param name="cancellationToken">Optional cancellation token for the dependency query.</param>
         /// <returns>
-        /// A <see cref="ServiceDependencyNode"/> representing the recursive dependency hierarchy, or <c>null</c> if the service could not be found or dependencies could not be resolved.
+        /// A <see cref="ServiceDependencyNode"/> representing the recursive dependency hierarchy,
+        /// or <c>null</c> if the service is not installed. Services that cannot be fully resolved
+        /// (e.g. access denied) are represented by placeholder nodes within the returned tree;
+        /// unexpected failures propagate as exceptions rather than returning <c>null</c>.
         /// </returns>
+        /// <exception cref="ArgumentException">Thrown if <paramref name="serviceName"/> is null, empty, or only contains whitespace.</exception>
         ServiceDependencyNode? GetDependencies(string? serviceName, CancellationToken cancellationToken = default);
     }
 }

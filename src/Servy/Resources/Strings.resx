@@ -213,7 +213,7 @@ Copyright © {2} Akram El Assas. All rights reserved.
   <data name="Label_RotationSize" xml:space="preserve">
     <value>Rotation Size</value>
   </data>
-  <data name="Label_RotationSizeUnity" xml:space="preserve">
+  <data name="Label_RotationSizeUnit" xml:space="preserve">
     <value>Megabytes (MB)</value>
   </data>
   <data name="Label_EnableDateRotation" xml:space="preserve">
@@ -310,7 +310,7 @@ Copyright © {2} Akram El Assas. All rights reserved.
     <value>Environment Variables</value>
   </data>
   <data name="Info_EnvironmentVariables" xml:space="preserve">
-    <value>Enter variables in the format varName=varValue, one per line or separated by semicolons (;). Use \= to escape '=', \" to escape '"', \; to escape ';' and \\ to escape '\'. Supports environment variable expansion, example: VAR1=%ProgramData%\MyApp; VAR2=%VAR1%\bin</value>
+    <value>Enter variables in the format varName=varValue, one per line or separated by semicolons (;). Use \= to escape '=', \" to escape '"', \; to escape ';', \\ to escape '\', and %% to escape '%' (collapses to a single '%'). Supports environment variable expansion, example: VAR1=%ProgramData%\MyApp; VAR2=%VAR1%\bin</value>
   </data>
 
   <!-- Service Dependencies -->
@@ -523,9 +523,6 @@ If the service is disabled and marked for deletion, the installation will fail u
   </data>
   <data name="Msg_InvalidWrapperExePath" xml:space="preserve">
     <value>Service wrapper executable not found.</value>
-  </data>
-  <data name="Msg_ConfigSizeLimitReached" xml:space="preserve">
-    <value>Configuration file exceeds maximum size (10 MB).</value>
   </data>
   <data name="Msg_ArgumentsLengthReached" xml:space="preserve">
     <value>Arguments exceed the Windows command-line limit of {0} characters.</value>

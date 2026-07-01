@@ -4,11 +4,11 @@
 # Automates the update of Servy’s Scoop manifest.
 # When a new release is published (or triggered
 # manually), this workflow:
-#     • Downloads the latest installer
-#     • Computes its SHA256 hash
-#     • Updates the manifest in `aelassas/scoop-bucket`
-#     • Optionally creates a PR to update the manifest
-#       in `ScoopInstaller/Extras`
+#         • Downloads the latest installer
+#         • Computes its SHA256 hash
+#         • Updates the manifest in `aelassas/scoop-bucket`
+#         • Optionally creates a PR to update the manifest
+#           in `ScoopInstaller/Extras`
 # ===========================================
 
 name: scoop
@@ -23,8 +23,9 @@ on:
         required: false
       run_extras_pr:
         description: 'Also update ScoopInstaller/Extras?'
+        type: boolean
         required: false
-        default: 'false'
+        default: false
 
 concurrency:
   group: scoop-${{ github.ref }}
@@ -38,13 +39,17 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write # Needed here to push commits back
-     
+      
     env:
         RUN_EXTRAS_PR: ${{ github.event.inputs.run_extras_pr || 'false' }}
+        MAX_RETRIES: 5
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 #v4.3.1
+
+      - name: Initialize Git Script Helpers
+        uses: ./.github/actions/setup-git-helpers
 
       - name: Set version vars
         uses: ./.github/actions/resolve-version
@@ -52,14 +57,24 @@ jobs:
           manual_tag: ${{ github.event.inputs.tag }}
           release_tag: ${{ github.event.release.tag_name }}
 
-      - name: Download installer
+      - name: Stage Scoop Download Target
         shell: pwsh
         run: |
           $InstallerDir = "$env:GITHUB_WORKSPACE\_installer"
-          New-Item -ItemType Directory -Force -Path $InstallerDir
+          New-Item -ItemType Directory -Force -Path $InstallerDir | Out-Null
           $url = "https://github.com/aelassas/servy/releases/download/${env:TAG}/servy-${env:VERSION}-x64-installer.exe"
-          Write-Host "Downloading Servy installer from $url"
-          Invoke-WebRequest -Uri $url -OutFile "$InstallerDir\servy-${env:VERSION}-x64-installer.exe"
+          $out = "$InstallerDir\servy-${env:VERSION}-x64-installer.exe"
+          Write-Host "Staging Scoop asset lookup path from $url"
+          Add-Content -Path $env:GITHUB_ENV -Value "SCOOP_DOWNLOAD_URL=$url"
+          Add-Content -Path $env:GITHUB_ENV -Value "SCOOP_DOWNLOAD_OUT=$out"
+
+      - name: Download installer
+        uses: ./.github/actions/download-with-retry
+        with:
+          url: ${{ env.SCOOP_DOWNLOAD_URL }}
+          output_path: ${{ env.SCOOP_DOWNLOAD_OUT }}
+          asset_name: 'Servy Release Installer for Scoop'
+          max_retries: ${{ env.MAX_RETRIES }}
 
       - name: Compute SHA256
         shell: pwsh
@@ -68,7 +83,7 @@ jobs:
           $InstallerPath = "$InstallerDir\servy-${env:VERSION}-x64-installer.exe"
           $HASH = Get-FileHash $InstallerPath -Algorithm SHA256
           $LOWER = $HASH.Hash.ToLower()
-          "HASH=$LOWER" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Add-Content -Path $env:GITHUB_ENV -Value "HASH=$LOWER"
           Remove-Item $InstallerPath
 
       - name: Create PowerShell utility
@@ -84,8 +99,7 @@ jobs:
               # Split lines correctly using regex
               $lines = [regex]::Split($jsonString, "\r?\n")
                
-              # Normalize indentation explicitly: calculate the nesting level based on 
-              # Windows PowerShell 5.1's 2-space baseline and map it securely to a 4-space indent.
+              # Normalize indentation: pwsh 7's ConvertTo-Json uses a 2-space baseline; map it to 4-space indents.
               $lines = $lines | ForEach-Object {
                   [regex]::Replace($_, '^( +)', {
                       param($m)
@@ -97,8 +111,9 @@ jobs:
               # Join lines back together with a standardized Unix trailing newline
               $jsonString = ($lines -join "`n").TrimEnd("`r", "`n") + "`n"
                
-              # Write to file using UTF8
-              [System.IO.File]::WriteAllText($jsonPath, $jsonString, [System.Text.Encoding]::UTF8)
+              # Write to file using BOM-less UTF-8 encoding
+              $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+              [System.IO.File]::WriteAllText($jsonPath, $jsonString, $utf8NoBom)
               Write-Host "Successfully wrote manifest to $jsonPath"
           }
           '@
@@ -108,17 +123,15 @@ jobs:
       - name: Update servy.json in current repository
         shell: pwsh
         run: |
+          . "$env:RUNNER_TEMP\git-helpers.ps1"
           . "$env:TEMP\ScoopUtils.ps1"
           $manifestPath = "setup/scoop/servy.json"
-          if (-Not (Test-Path $manifestPath)) {
-              Write-Error "Manifest not found at $manifestPath"
-              exit 1
-          }
+          if (-Not (Test-Path $manifestPath)) { throw "Manifest not found at $manifestPath" }
 
           # Load and update JSON
           $jsonObj = Get-Content $manifestPath -Raw | ConvertFrom-Json
           $jsonObj.version = $env:VERSION
-          $jsonObj.architecture.'64bit'.url = "https://github.com/aelassas/servy/releases/download/v$($env:VERSION)/servy-$($env:VERSION)-x64-installer.exe"
+          $jsonObj.architecture.'64bit'.url = "https://github.com/aelassas/servy/releases/download/${env:TAG}/servy-${env:VERSION}-x64-installer.exe"
           $jsonObj.architecture.'64bit'.hash = $env:HASH
 
           Write-ScoopManifest -jsonObj $jsonObj -jsonPath (Resolve-Path $manifestPath)
@@ -126,15 +139,13 @@ jobs:
           # Commit and push back to aelassas/servy
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if ((git status --porcelain) -ne '') {
+          if (git status --porcelain $manifestPath) {
             git add $manifestPath
             git commit -m "chore: update setup/scoop/servy.json to version $env:VERSION"
-             
-            # Explicitly target the main branch
-            git pull origin main
-            if ($LASTEXITCODE -ne 0) { throw "git pull failed (exit $LASTEXITCODE)" }
-            git push origin HEAD:main
-            if ($LASTEXITCODE -ne 0) { throw "git push failed (exit $LASTEXITCODE)" }
+            
+            # Cast string environment value safely outside parameter bindings
+            $maxRetries = [int]$env:MAX_RETRIES
+            Invoke-PushWithRetry -PullRef 'main' -PushRef 'HEAD:main' -MaxRetries $maxRetries
           } else {
             Write-Host "No changes to local manifest."
           }
@@ -146,6 +157,7 @@ jobs:
           VERSION: ${{ env.VERSION }}
           GH_PAT: ${{ secrets.PAT }}
         run: |
+          . "$env:RUNNER_TEMP\git-helpers.ps1"
           . "$env:TEMP\ScoopUtils.ps1"
           git clone https://github.com/aelassas/scoop-bucket.git scoop-bucket
           Set-Location scoop-bucket
@@ -155,20 +167,20 @@ jobs:
           $manifestPath = "servy.json"
           $jsonObj = Get-Content $manifestPath -Raw | ConvertFrom-Json
           $jsonObj.version = $env:VERSION
-          $jsonObj.architecture.'64bit'.url = "https://github.com/aelassas/servy/releases/download/v$($env:VERSION)/servy-$($env:VERSION)-x64-installer.exe"
+          $jsonObj.architecture.'64bit'.url = "https://github.com/aelassas/servy/releases/download/${env:TAG}/servy-${env:VERSION}-x64-installer.exe"
           $jsonObj.architecture.'64bit'.hash = $env:HASH
            
           Write-ScoopManifest -jsonObj $jsonObj -jsonPath (Join-Path (Get-Location) $manifestPath)
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if ((git status --porcelain) -ne '') {
+          if (git status --porcelain $manifestPath) {
             git add $manifestPath
             git commit -m "chore: update Servy Scoop manifest to version $env:VERSION"
-            git pull
-            if ($LASTEXITCODE -ne 0) { throw "git pull failed (exit $LASTEXITCODE)" }
-            git push origin HEAD
-            if ($LASTEXITCODE -ne 0) { throw "git push failed (exit $LASTEXITCODE)" }
+            
+            # Cast string environment value safely outside parameter bindings
+            $maxRetries = [int]$env:MAX_RETRIES
+            Invoke-PushWithRetry -PullRef 'HEAD' -PushRef 'HEAD' -MaxRetries $maxRetries
           } else {
             Write-Host "No changes to commit"
           }
@@ -187,10 +199,19 @@ jobs:
           git config url."https://x-access-token:${env:GH_PAT}@github.com/".insteadOf "https://github.com/"
           $branchName = "update-servy-$env:VERSION"
 
-          $mergedPR = gh pr list --repo ScoopInstaller/Extras --head "aelassas:$branchName" --state merged --json number --limit 1 | ConvertFrom-Json
-          if ($mergedPR.Count -gt 0) {
-              Write-Host "A PR for version $env:VERSION has already been merged. Skipping."
-              return 
+          # Query all PR state contexts associated with this destination branch layout mapping
+          $existingPR = gh pr list --repo ScoopInstaller/Extras --head "aelassas:$branchName" --state all --json number,state --limit 1 | ConvertFrom-Json
+          
+          if ($existingPR.Count -gt 0) {
+              if ($existingPR[0].state -eq "MERGED") {
+                  Write-Host "A PR for version $env:VERSION has already been merged. Skipping entire branch processing block."
+                  Add-Content -Path $env:GITHUB_ENV -Value "SKIP_PR_CREATE=true"
+                  return 
+              }
+              elseif ($existingPR[0].state -eq "OPEN") {
+                  Write-Host "A PR for version $env:VERSION is currently OPEN. Proceeding to force-push payload updates, but skip creation step."
+                  Add-Content -Path $env:GITHUB_ENV -Value "SKIP_PR_CREATE=true"
+              }
           }
 
           git remote add upstream https://github.com/ScoopInstaller/Extras.git
@@ -204,33 +225,32 @@ jobs:
            
           $manifestPath = "bucket/servy.json"
           $fullPath = Join-Path (Get-Location) $manifestPath
+          $installerUrl = "https://github.com/aelassas/servy/releases/download/${env:TAG}/servy-${env:VERSION}-x64-installer.exe"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           if (-Not (Test-Path $manifestPath)) {
-              # Create new manifest
+              # Source canonical metadata fields directly from the updated reference file in the workspace
+              $canonicalSourcePath = "$env:GITHUB_WORKSPACE/setup/scoop/servy.json"
+              $canonicalObj = Get-Content $canonicalSourcePath -Raw | ConvertFrom-Json
+
+              # Hydrate static structural fields directly from canonical settings
               $jsonObj = [PSCustomObject]@{
                   version      = $env:VERSION
-                  description  = "Servy lets you run any app as a native Windows service with full control."
-                  homepage     = "https://servy-win.github.io"
-                  license      = "MIT"
+                  description  = $canonicalObj.description
+                  homepage     = $canonicalObj.homepage
+                  license      = $canonicalObj.license
                   architecture = @{
                       '64bit' = @{
-                          url  = "https://github.com/aelassas/servy/releases/download/v$($env:VERSION)/servy-$($env:VERSION)-x64-installer.exe"
+                          url  = $installerUrl
                           hash = $env:HASH
                       }
                   }
-                  innosetup  = $true
-                  bin        = "servy-cli.exe"
-                  shortcuts  = @(@('Servy.exe', 'Servy'), @('Servy.Manager.exe', 'Servy Manager'))
-                  checkver   = @{ github = "https://github.com/aelassas/servy" }
-                  autoupdate = @{
-                      architecture = @{
-                          '64bit' = @{
-                              url = "https://github.com/aelassas/servy/releases/download/v`$version/servy-`$version-x64-installer.exe"
-                          }
-                      }
-                  }
+                  innosetup  = $canonicalObj.innosetup
+                  bin        = $canonicalObj.bin
+                  shortcuts  = $canonicalObj.shortcuts
+                  checkver   = $canonicalObj.checkver
+                  autoupdate = $canonicalObj.autoupdate
               }
               Write-ScoopManifest -jsonObj $jsonObj -jsonPath $fullPath
               git add $manifestPath
@@ -239,12 +259,12 @@ jobs:
               # Update existing manifest
               $jsonObj = Get-Content $manifestPath -Raw | ConvertFrom-Json
               $jsonObj.version = $env:VERSION
-              $jsonObj.architecture.'64bit'.url = "https://github.com/aelassas/servy/releases/download/v$env:VERSION/servy-$env:VERSION-x64-installer.exe"
+              $jsonObj.architecture.'64bit'.url = $installerUrl
               $jsonObj.architecture.'64bit'.hash = $env:HASH
 
               Write-ScoopManifest -jsonObj $jsonObj -jsonPath $fullPath
            
-              if ((git status --porcelain) -ne '') {
+              if (git status --porcelain $manifestPath) {
                   git add $manifestPath
                   git commit -m "servy: Update to version $env:VERSION"
               }
@@ -253,7 +273,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "git push failed (exit $LASTEXITCODE)" }
          
       - name: Open Pull Request in ScoopInstaller/Extras
-        if: env.RUN_EXTRAS_PR == 'true'
+        if: env.RUN_EXTRAS_PR == 'true' && env.SKIP_PR_CREATE != 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.PAT }}

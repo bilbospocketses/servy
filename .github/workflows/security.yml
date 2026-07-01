@@ -41,9 +41,6 @@ jobs:
       - name: Setup .NET
         uses: ./.github/actions/setup-dotnet
 
-      - name: Check .NET version
-        run: dotnet --version
-
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 #v4.3.0
         with:
           path: ~/.nuget/packages
@@ -63,12 +60,9 @@ jobs:
           # Fetch structured analysis data directly via JSON serialization to avoid brittle string matching
           $rawJson = dotnet list Servy.sln package --vulnerable --include-transitive --format json
           
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "The dotnet list command tracking invocation failed with a hard infrastructure exit code: $LASTEXITCODE"
-            exit 1
-          }
+          if ($LASTEXITCODE -ne 0) { throw "dotnet list package --vulnerable failed (exit $LASTEXITCODE)." }
 
-          # FIX: Pass the raw array through the pipeline instead of using -InputObject.
+          # Pass the raw array through the pipeline instead of using -InputObject.
           # The pipeline streams the strings sequentially, and ConvertFrom-Json automatically
           # reassembles them into a single coherent JSON block.
           $json = $rawJson | ConvertFrom-Json
@@ -88,11 +82,10 @@ jobs:
           if ($hasVuln) {
             # Print human-readable output to logs for rapid local manual triage
             dotnet list Servy.sln package --vulnerable --include-transitive
-            Write-Error "SECURITY EXCEPTION: Vulnerable packages were detected in the solution schema! Review structural trace outputs above."
-            exit 1
+            throw "Vulnerable NuGet packages detected in Servy.sln - see the package list above."
           }
           else {
-            Write-Host "Success: Dependency matrix evaluated healthy with 0 vulnerabilities detected." -ForegroundColor Green
+            Write-Host "No vulnerable NuGet packages found in Servy.sln." -ForegroundColor Green
           }
 
   # 2. Static Analysis (SAST)

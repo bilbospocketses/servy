@@ -1,16 +1,17 @@
 ﻿using Servy.Core.Common;
+using Servy.Core.Config;
 using Servy.Core.Data;
 using Servy.Core.DTOs;
 using Servy.Core.Enums;
 using Servy.Core.Helpers;
 using Servy.Core.Logging;
 using Servy.Core.Services;
-using Servy.Core.Validators;
+using Servy.Core.Validation;
 using Servy.Manager.Config;
 using Servy.Manager.Mappers;
 using Servy.Manager.Models;
 using Servy.Manager.Resources;
-using Servy.Manager.Validators;
+using Servy.Manager.Validation;
 using Servy.UI.Services;
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -116,7 +117,7 @@ namespace Servy.Manager.Services
         private async Task<T> ExecuteLockedAsync<T>(string serviceName, Func<Task<T>> action, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(serviceName))
-                throw new ArgumentNullException(nameof(serviceName));
+                throw new ArgumentException("Service name cannot be null, empty, or whitespace.", nameof(serviceName));
 
             // Get or create the lock for this specific service.
             // We intentionally DO NOT eagerly evict these semaphores when they become idle. 
@@ -144,35 +145,53 @@ namespace Servy.Manager.Services
         #region IServiceCommands Implementation
 
         /// <inheritdoc />
-        public async Task<List<Service?>> SearchServicesAsync(string? searchText, bool calculatePerf, CancellationToken cancellationToken = default)
+        public async Task<List<Service>> SearchServicesAsync(string? searchText, bool calculatePerf, CancellationToken cancellationToken = default)
         {
             var results = await _serviceRepository.SearchAsync(
-                searchText ?? string.Empty, decrypt: false, cancellationToken);
+                searchText ?? string.Empty, decrypt: false, cancellationToken).ConfigureAwait(false);
 
-            // Map all domain services to Service models in parallel
-            var tasks = results.Select(r => ServiceMapper.ToModelAsync(
-                Core.Mappers.ServiceMapper.ToDomain(_serviceManager, r),
-                _appConfig.IsDesktopAppAvailable,
-                calculatePerf,
-                _processHelper,
-                cancellationToken: cancellationToken));
-            var services = await Task.WhenAll(tasks);
+            // Implemented SemaphoreSlim throttling aligned with sibling paths to prevent unbounded thread pool 
+            // exhaustion during concurrent GetProcessTreeMetrics heavy OS calls.
+            using (var throttler = new SemaphoreSlim(Environment.ProcessorCount))
+            {
+                // Map all domain services to Service models in parallel with a bounded degree of parallelism
+                var tasks = results.Select(async r =>
+                {
+                    await throttler.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        return await ServiceMapper.ToModelAsync(
+                            Core.Mappers.ServiceMapper.ToDomain(_serviceManager, r),
+                            _appConfig.IsDesktopAppAvailable,
+                            calculatePerf,
+                            _processHelper,
+                            cancellationToken: cancellationToken).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        throttler.Release();
+                    }
+                });
 
-            // Filter out nulls resulting from malformed/orphaned DTOs 
-            // to prevent NullReferenceExceptions during UI data binding.
-            return services
-                .Where(s => s != null)
-                .ToList();
+                var services = await Task.WhenAll(tasks).ConfigureAwait(false);
+
+                // Filter out nulls resulting from malformed/orphaned DTOs 
+                // to prevent NullReferenceExceptions during UI data binding.
+                return services
+                    .Where(s => s != null)
+                    .Cast<Service>()
+                    .ToList();
+            }
         }
 
         /// <inheritdoc />
         public Task<bool> StartServiceAsync(Service? service, bool showMessageBox = true, CancellationToken cancellationToken = default) =>
             ExecuteServiceCommandAsync(
-                service, 
-                d => d.Start(cancellationToken), 
-                ServiceStatus.Running, 
-                Strings.Msg_ServiceStarted, 
-                checkDisabled: true, 
+                service,
+                d => d.Start(cancellationToken),
+                ServiceStatus.Running,
+                Strings.Msg_ServiceStarted,
+                checkDisabled: true,
                 showMessageBox: showMessageBox,
                 cancellationToken: cancellationToken);
 
@@ -203,18 +222,18 @@ namespace Servy.Manager.Services
             {
                 if (string.IsNullOrWhiteSpace(_appConfig.DesktopAppPublishPath) || !File.Exists(_appConfig.DesktopAppPublishPath))
                 {
-                    await _messageBoxService.ShowErrorAsync(Strings.Msg_DesktopAppNotFound, AppConfig.Caption);
+                    await _messageBoxService.ShowErrorAsync(Strings.Msg_DesktopAppNotFound, UiAppConfig.Caption);
                     return;
                 }
 
-                var forceFlag = _appConfig.ForceSoftwareRendering ? $" {Core.Config.AppConfig.ForceSoftwareRenderingArg}" : string.Empty;
+                var forceFlag = _appConfig.ForceSoftwareRendering ? $" {AppConfig.ForceSoftwareRenderingArg}" : string.Empty;
 
                 using (var process = new Process
                 {
                     StartInfo = new ProcessStartInfo
                     {
                         FileName = _appConfig.DesktopAppPublishPath,
-                        Arguments = $"\"false\"{forceFlag}", // Pass false to skip splash screen
+                        Arguments = $"\"{AppConfig.SkipSplashArgument}\"{forceFlag}", // Pass false to skip splash screen
                         UseShellExecute = true,
                     }
                 })
@@ -227,14 +246,14 @@ namespace Servy.Manager.Services
 
                     if (string.IsNullOrWhiteSpace(service.Name))
                     {
-                        await _messageBoxService.ShowErrorAsync(Strings.Msg_InvalidServiceName, AppConfig.Caption);
+                        await _messageBoxService.ShowErrorAsync(Strings.Msg_InvalidServiceName, UiAppConfig.Caption);
                         return;
                     }
 
-                    var serviceDomain = await GetServiceDomain(service.Name, cancellationToken);
-                    if (serviceDomain == null)
+                    var serviceDto = await _serviceRepository.GetByNameAsync(service.Name, decrypt: false, cancellationToken);
+                    if (serviceDto == null)
                     {
-                        await _messageBoxService.ShowErrorAsync(Strings.Msg_ServiceNotFound, AppConfig.Caption);
+                        await _messageBoxService.ShowErrorAsync(Strings.Msg_ServiceNotFound, UiAppConfig.Caption);
                         return;
                     }
 
@@ -248,7 +267,7 @@ namespace Servy.Manager.Services
             {
                 string serviceName = service?.Name ?? "<unknown>";
                 Logger.Error($"Failed to configure {serviceName}.", ex);
-                await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, AppConfig.Caption);
+                await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, UiAppConfig.Caption);
             }
         }
 
@@ -266,7 +285,7 @@ namespace Servy.Manager.Services
 
                     if (exists)
                     {
-                        var result = await _messageBoxService.ShowConfirmAsync(Strings.Msg_ServiceAlreadyExists, AppConfig.Caption);
+                        var result = await _messageBoxService.ShowConfirmAsync(Strings.Msg_ServiceAlreadyExists, UiAppConfig.Caption);
                         if (!result)
                         {
                             return false;
@@ -277,16 +296,16 @@ namespace Servy.Manager.Services
                     var serviceDomain = await GetServiceDomain(service.Name, cancellationToken);
                     if (serviceDomain == null)
                     {
-                        await _messageBoxService.ShowErrorAsync(Strings.Msg_ServiceNotFound, AppConfig.Caption);
+                        await _messageBoxService.ShowErrorAsync(Strings.Msg_ServiceNotFound, UiAppConfig.Caption);
                         return false;
                     }
 
                     string? wrapperExeDir = null;
 #if DEBUG
-                    wrapperExeDir = Path.GetFullPath(Core.Config.AppConfig.ServyServiceManagerDebugFolder);
+                    wrapperExeDir = Path.GetFullPath(AppConfig.ServyServiceManagerDebugFolder);
                     if (!Directory.Exists(wrapperExeDir))
                     {
-                        await _messageBoxService.ShowErrorAsync(Strings.Msg_InvalidWrapperExePath, AppConfig.Caption);
+                        await _messageBoxService.ShowErrorAsync(Strings.Msg_InvalidWrapperExePath, UiAppConfig.Caption);
                         return false;
                     }
 #endif
@@ -296,18 +315,18 @@ namespace Servy.Manager.Services
                     {
                         var msg = !string.IsNullOrWhiteSpace(res.ErrorMessage) ? res.ErrorMessage : Strings.Msg_UnexpectedError;
                         Logger.Warn($"InstallService failed: {msg}");
-                        await _messageBoxService.ShowErrorAsync(msg, AppConfig.Caption);
+                        await _messageBoxService.ShowErrorAsync(msg, UiAppConfig.Caption);
                         return false;
                     }
 
                     service.IsInstalled = true;
-                    await _messageBoxService.ShowInfoAsync(Strings.Msg_ServiceInstalled, AppConfig.Caption);
+                    await _messageBoxService.ShowInfoAsync(Strings.Msg_ServiceInstalled, UiAppConfig.Caption);
                     return true;
                 }
                 catch (Exception ex)
                 {
                     Logger.Error($"Failed to install {service.Name}.", ex);
-                    await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, AppConfig.Caption);
+                    await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, UiAppConfig.Caption);
                     return false;
                 }
             }, cancellationToken: cancellationToken);
@@ -323,13 +342,13 @@ namespace Servy.Manager.Services
             {
                 try
                 {
-                    var confirm = await _messageBoxService.ShowConfirmAsync(Strings.Msg_UninstallServiceConfirm, AppConfig.Caption);
+                    var confirm = await _messageBoxService.ShowConfirmAsync(Strings.Msg_UninstallServiceConfirm, UiAppConfig.Caption);
                     if (!confirm) return false;
 
                     var serviceDomain = await GetServiceDomain(service.Name, cancellationToken);
                     if (serviceDomain == null)
                     {
-                        await _messageBoxService.ShowErrorAsync(Strings.Msg_ServiceNotFound, AppConfig.Caption);
+                        await _messageBoxService.ShowErrorAsync(Strings.Msg_ServiceNotFound, UiAppConfig.Caption);
                         return false;
                     }
 
@@ -339,17 +358,17 @@ namespace Servy.Manager.Services
                     {
                         var msg = !string.IsNullOrWhiteSpace(res.ErrorMessage) ? res.ErrorMessage : Strings.Msg_UnexpectedError;
                         Logger.Warn($"UninstallService failed: {msg}");
-                        await _messageBoxService.ShowErrorAsync(msg, AppConfig.Caption);
+                        await _messageBoxService.ShowErrorAsync(msg, UiAppConfig.Caption);
                         return false;
                     }
 
-                    await Task.Run(() => RemoveService(service));
+                    RemoveService(service);
                     return true;
                 }
                 catch (Exception ex)
                 {
                     Logger.Error($"Failed to uninstall {service.Name}.", ex);
-                    await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, AppConfig.Caption);
+                    await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, UiAppConfig.Caption);
                     return false;
                 }
             }, cancellationToken: cancellationToken);
@@ -365,16 +384,18 @@ namespace Servy.Manager.Services
             {
                 try
                 {
-                    var confirm = await _messageBoxService.ShowConfirmAsync(Strings.Msg_RemoveServiceConfirm, AppConfig.Caption);
+                    var confirm = await _messageBoxService.ShowConfirmAsync(Strings.Msg_RemoveServiceConfirm, UiAppConfig.Caption);
                     if (!confirm) return false;
 
-                    var serviceDomain = await GetServiceDomain(service.Name, cancellationToken);
-                    if (serviceDomain == null)
+                    // 1. Try standard fallback-resilient check directly in the DB
+                    var existsInDb = await _serviceRepository.GetByNameAsync(service.Name, decrypt: false, cancellationToken);
+                    if (existsInDb == null)
                     {
-                        await _messageBoxService.ShowErrorAsync(Strings.Msg_ServiceNotFound, AppConfig.Caption);
+                        await _messageBoxService.ShowErrorAsync(Strings.Msg_ServiceNotFound, UiAppConfig.Caption);
                         return false;
                     }
 
+                    // 2. Perform the deletion pass
                     var res = await _serviceRepository.DeleteAsync(service.Name, cancellationToken);
                     if (res > 0) RemoveService(service);
 
@@ -387,7 +408,7 @@ namespace Servy.Manager.Services
                     else
                     {
                         Logger.Error($"Failed to remove service {service.Name} from repository.");
-                        await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, AppConfig.Caption);
+                        await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, UiAppConfig.Caption);
                     }
 
                     return success;
@@ -395,7 +416,7 @@ namespace Servy.Manager.Services
                 catch (Exception ex)
                 {
                     Logger.Error($"Failed to remove {service.Name}.", ex);
-                    await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, AppConfig.Caption);
+                    await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, UiAppConfig.Caption);
                     return false;
                 }
             }, cancellationToken: cancellationToken);
@@ -445,20 +466,20 @@ namespace Servy.Manager.Services
                 Strings.ImportJson_Error,
                 cancellationToken: cancellationToken);
 
-        ///<inheritdoc/>
-        public async Task CopyPidAsync(Service? service)
+        /// <inheritdoc/>
+        public async Task CopyPidAsync(Service? service, CancellationToken cancellationToken = default)
         {
             if (service?.Pid == null) return;
 
             try
             {
                 string pidValue = service.Pid.Value.ToString();
-                string serviceName = service.Name ?? "Unknown";
+                string serviceName = service.Name ?? "<unknown>";
 
                 bool success = false;
 
                 // Move the retry loop outside the Dispatcher to prevent UI freezing
-                for (int i = 0; i < Core.Config.AppConfig.ClipboardComMaxRetries; i++)
+                for (int i = 0; i < AppConfig.ClipboardComMaxRetries; i++)
                 {
                     // Accessing the Clipboard requires the STA thread (UI Thread)
                     // We invoke only the granular action on the dispatcher
@@ -486,27 +507,27 @@ namespace Servy.Manager.Services
 
                     // If we failed, wait asynchronously before trying again.
                     // This allows the UI thread to remain responsive during the wait.
-                    if (i < Core.Config.AppConfig.ClipboardComMaxRetries - 1)
+                    if (i < AppConfig.ClipboardComMaxRetries - 1)
                     {
-                        await Task.Delay(Core.Config.AppConfig.ClipboardComRetryDelayMs);
+                        await Task.Delay(AppConfig.ClipboardComRetryDelayMs, cancellationToken: cancellationToken);
                     }
                 }
 
                 if (success)
                 {
                     Logger.Info($"PID {pidValue} of service {serviceName} copied to clipboard.");
-                    await _messageBoxService.ShowInfoAsync(Strings.Msg_PidCopied, AppConfig.Caption);
+                    await _messageBoxService.ShowInfoAsync(Strings.Msg_PidCopied, UiAppConfig.Caption);
                 }
                 else
                 {
-                    Logger.Warn($"Failed to copy PID {pidValue} for {serviceName} after {Core.Config.AppConfig.ClipboardComMaxRetries} attempts.");
-                    await _messageBoxService.ShowErrorAsync(Strings.Msg_PidCopyFailed, AppConfig.Caption);
+                    Logger.Warn($"Failed to copy PID {pidValue} for {serviceName} after {AppConfig.ClipboardComMaxRetries} attempts.");
+                    await _messageBoxService.ShowErrorAsync(Strings.Msg_PidCopyFailed, UiAppConfig.Caption);
                 }
             }
             catch (Exception ex)
             {
                 Logger.Error("Failed to copy PID to clipboard.", ex);
-                await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, AppConfig.Caption);
+                await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, UiAppConfig.Caption);
             }
         }
 
@@ -638,9 +659,9 @@ namespace Servy.Manager.Services
                 if (showMessageBox)
                 {
                     if (!string.IsNullOrWhiteSpace(errorMessage))
-                        await _messageBoxService.ShowErrorAsync(errorMessage, AppConfig.Caption);
+                        await _messageBoxService.ShowErrorAsync(errorMessage, UiAppConfig.Caption);
                     else if (!string.IsNullOrWhiteSpace(infoMessage))
-                        await _messageBoxService.ShowInfoAsync(infoMessage, AppConfig.Caption);
+                        await _messageBoxService.ShowInfoAsync(infoMessage, UiAppConfig.Caption);
                 }
 
                 return success;
@@ -682,8 +703,9 @@ namespace Servy.Manager.Services
         /// <returns>A task representing the asynchronous export operation.</returns>
         /// <remarks>
         /// Unlike the Desktop App variant, this method retrieves the <see cref="ServiceDto"/> directly 
-        /// from the <see cref="IServiceRepository"/> to ensure the exported file reflects the actual 
-        /// stored state, including encrypted credentials if applicable.
+        /// from the <see cref="IServiceRepository"/> to ensure the exported file reflects the current 
+        /// configuration. Credentials are exported in decrypted (plaintext) form so the file remains 
+        /// portable across machines; the resulting file should be treated as sensitive.
         /// </remarks>
         private async Task ExportServiceConfigAsync(
             Service? service,
@@ -695,7 +717,7 @@ namespace Servy.Manager.Services
         {
             try
             {
-                if (service == null) throw new ArgumentNullException(nameof(service));
+                if (service == null || string.IsNullOrWhiteSpace(service.Name)) return;
 
                 var path = getFilePath();
                 if (string.IsNullOrEmpty(path)) return;
@@ -703,19 +725,19 @@ namespace Servy.Manager.Services
                 var dto = await _serviceRepository.GetByNameAsync(service.Name, cancellationToken: cancellationToken);
                 if (dto == null)
                 {
-                    await _messageBoxService.ShowErrorAsync(Strings.Msg_ServiceNotFound, AppConfig.Caption);
+                    await _messageBoxService.ShowErrorAsync(Strings.Msg_ServiceNotFound, UiAppConfig.Caption);
                     return;
                 }
 
                 exportAction(dto, path);
 
                 Logger.Info($"Service configuration exported to {formatName} at: {path}");
-                await _messageBoxService.ShowInfoAsync(successMessage, AppConfig.Caption);
+                await _messageBoxService.ShowInfoAsync(successMessage, UiAppConfig.Caption);
             }
             catch (Exception ex)
             {
                 Logger.Error($"Failed to export {formatName} of {service?.Name}.", ex);
-                await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, AppConfig.Caption);
+                await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, UiAppConfig.Caption);
             }
         }
 
@@ -752,34 +774,36 @@ namespace Servy.Manager.Services
             string errorMessage,
             CancellationToken cancellationToken = default)
         {
-            var path = getFilePath();
-            if (string.IsNullOrEmpty(path)) return;
-
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var path = getFilePath();
+                if (string.IsNullOrEmpty(path)) return;
+
                 // Defense-in-depth: Run the security guards FIRST before touching the disk via size validation
                 var guardResult = ImportGuard.ValidatePathSecurityAndSize(path, out string? content);
                 if (!guardResult.IsValid || guardResult.ValidPath == null || content == null)
                 {
-                    await _messageBoxService.ShowErrorAsync(guardResult.ErrorMessage, AppConfig.Caption);
+                    await _messageBoxService.ShowErrorAsync(guardResult.ErrorMessage, UiAppConfig.Caption);
                     return;
                 }
 
                 var validation = validateContent(content);
                 if (!validation.IsValid)
                 {
-                    await _messageBoxService.ShowErrorAsync(validation.ErrorMsg, AppConfig.Caption);
+                    await _messageBoxService.ShowErrorAsync(validation.ErrorMsg, UiAppConfig.Caption);
                     return;
                 }
 
                 var dto = deserialize(content);
                 if (dto == null)
                 {
-                    await _messageBoxService.ShowErrorAsync(loadErrorMessage, AppConfig.Caption);
+                    await _messageBoxService.ShowErrorAsync(loadErrorMessage, UiAppConfig.Caption);
                     return;
                 }
 
-                if (!await _serviceConfigurationValidator.ValidateAsync(dto)) return;
+                if (!await _serviceConfigurationValidator.ValidateAsync(dto, importMode: true, cancellationToken: cancellationToken)) return;
 
                 var res = await ExecuteLockedAsync(dto.Name, () =>
                     _serviceRepository.UpsertAsync(
@@ -792,19 +816,23 @@ namespace Servy.Manager.Services
                 if (res > 0)
                 {
                     Logger.Info($"Service configuration imported from {formatName} at: {path}");
-                    await _messageBoxService.ShowInfoAsync(successMessage, AppConfig.Caption);
+                    await _messageBoxService.ShowInfoAsync(successMessage, UiAppConfig.Caption);
                     await RefreshServices();
                 }
                 else
                 {
                     Logger.Error($"Failed to import {formatName} config from {path}");
-                    await _messageBoxService.ShowErrorAsync(errorMessage, AppConfig.Caption);
+                    await _messageBoxService.ShowErrorAsync(errorMessage, UiAppConfig.Caption);
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed to import {formatName} config from {path}.", ex);
-                await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, AppConfig.Caption);
+                Logger.Error($"Failed to import {formatName} config.", ex);
+                await _messageBoxService.ShowErrorAsync(Strings.Msg_UnexpectedError, UiAppConfig.Caption);
             }
         }
 
@@ -815,7 +843,7 @@ namespace Servy.Manager.Services
         private void RemoveService(Service? service)
         {
             if (service == null) throw new ArgumentNullException(nameof(service));
-            _removeServiceCallback?.Invoke(service.Name!);
+            _removeServiceCallback.Invoke(service.Name!);
         }
 
         /// <summary>
@@ -823,18 +851,15 @@ namespace Servy.Manager.Services
         /// </summary>
         private async Task RefreshServices()
         {
-            if (_refreshCallback != null)
-                await _refreshCallback();
+            await _refreshCallback();
         }
 
         /// <summary>
-        /// Attempts to launch an external process and logs a warning if the start operation fails.
+        /// Attempts to launch an external process.
         /// </summary>
         /// <param name="process">The <see cref="Process"/> instance configured with the necessary start information.</param>
         /// <remarks>
-        /// This method does not throw an exception on failure; instead, it utilizes the 
-        /// <see cref="Logger.Warn(string)"/> method to record the failed attempt to launch 
-        /// the external configuration tool.
+        /// Failures returning false are logged; launch exceptions propagate to the caller.
         /// </remarks>
         private void StartProcess(Process process)
         {

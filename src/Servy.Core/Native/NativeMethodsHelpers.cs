@@ -13,7 +13,7 @@ namespace Servy.Core.Native
     /// <summary>
     /// Native Helper methods.
     /// </summary>
-    public class NativeMethodsHelpers
+    public static class NativeMethodsHelpers
     {
         #region Helper Methods
 
@@ -63,10 +63,10 @@ namespace Servy.Core.Native
         /// <exception cref="SecurityException">Identity cannot be resolved or translation failed.</exception>
         /// <exception cref="UnauthorizedAccessException">Invalid credentials or policy restriction.</exception>
         /// <exception cref="Win32Exception">Unexpected system error during logon.</exception>
-        public static void ValidateCredentials(string username, string? password)
+        public static void ValidateCredentials(string? username, string? password)
         {
             if (string.IsNullOrWhiteSpace(username))
-                throw new ArgumentException("Username cannot be empty.");
+                throw new ArgumentException("username cannot be empty or whitespace.", nameof(username));
 
             username = username.Trim();
 
@@ -77,11 +77,10 @@ namespace Servy.Core.Native
                 throw new ArgumentException($"The identity '{username}' is a group or logon context, not a runnable service account. Please use a specific service account (e.g., NetworkService) or a standard user.");
             }
 
-            // The pattern allows for 'NT AUTHORITY\Account', 'DOMAIN\Account', or '.\Account'
-            const string pattern = @"^(?:[\w \.\-]+|\.)\\[\w \.@!\-]+\$?$";
+            // The pattern safely allows for 'NT AUTHORITY\Account', 'DOMAIN\Account', or '.\Account'
+            const string pattern = @"^[\w \.\-]+\\[\w \.@!\-]+\$?$";
             var isGmsa = string.IsNullOrEmpty(password) && username.EndsWith('$');
 
-            // LOGIC: 
             // 1. Check the static exhaustive list (Case-Insensitive via HashSet comparer).
             // 2. Catch Virtual Service Accounts (NT SERVICE\...)
             // 3. Catch IIS AppPool Identities (IIS APPPOOL\...)
@@ -167,11 +166,11 @@ namespace Servy.Core.Native
 
                     switch (error)
                     {
-                        case 1326: // ERROR_LOGON_FAILURE
+                        case Errors.ERROR_LOGON_FAILURE:
                             throw new UnauthorizedAccessException("Invalid username or password.");
-                        case 1327: // ERROR_ACCOUNT_RESTRICTION
+                        case Errors.ERROR_ACCOUNT_RESTRICTION:
                             throw new UnauthorizedAccessException("Account restrictions prevent logon (e.g., blank password use is restricted).");
-                        case 1385: // ERROR_LOGON_TYPE_NOT_GRANTED
+                        case Errors.ERROR_LOGON_TYPE_NOT_GRANTED:
                             // Network logon denied by policy - retry with SERVICE logon type,
                             // which is the logon type the SCM will actually use.
                             if (LogonUser(user, domain, password, LOGON32_LOGON_SERVICE, LOGON32_PROVIDER_DEFAULT, out token))
@@ -213,6 +212,7 @@ namespace Servy.Core.Native
         /// windows during critical operations like key rotation or service configuration updates.
         /// </para>
         /// </remarks>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="source"/> or <paramref name="destination"/> is null, empty, or whitespace.</exception>
         /// <exception cref="IOException">Thrown when source and destination are on different volumes.</exception>
         /// <exception cref="Win32Exception">Thrown when the native MoveFileEx call fails for other reasons.</exception>
         public static void AtomicSecureMove(string source, string destination)
@@ -245,6 +245,8 @@ namespace Servy.Core.Native
         /// <returns>A populated identity structure. Check <see cref="FILE_IDENTITY.IsValidHandleInfo"/> for success state.</returns>
         public static FILE_IDENTITY GetFileIdentity(FileStream fs)
         {
+            if (fs == null) throw new ArgumentNullException(nameof(fs));
+
             var identity = new FILE_IDENTITY();
 
             // 1. Kernel32 Handle Probe
@@ -278,7 +280,17 @@ namespace Servy.Core.Native
                         // Buffer size is configurable via AppConfig to get past common log headers/prologues.
                         // We also incorporate fs.Length to differentiate rotated logs that have identical prefixes but different sizes.
                         byte[] buffer = new byte[AppConfig.FileIdentityPrefixBytes];
-                        int read = fs.Read(buffer, 0, buffer.Length);
+
+                        int read = 0;
+                        int n;
+
+                        // ROBUSTNESS RETRY LOOP: Continuously drain the stream into the buffer until the requested
+                        // size limit is fully met or a definitive End-of-File (0 bytes returned) is reached.
+                        // This guarantees deterministic digest results across network-bound SMB or FAT32 streams.
+                        while (read < buffer.Length && (n = fs.Read(buffer, read, buffer.Length - read)) > 0)
+                        {
+                            read += n;
+                        }
 
                         if (read > 0)
                         {

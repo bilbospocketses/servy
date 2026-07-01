@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Servy.Core.Helpers;
+using Servy.Core.Logging;
 using Servy.UI.Constants;
 using Servy.UI.Design;
 using System.ComponentModel;
@@ -39,7 +40,13 @@ namespace Servy.Manager.Converters
                 return;
             }
 
-            ProcessHelper = App.Services?.GetService<IProcessHelper>() ?? new DesignTimeProcessHelper();
+            var helper = App.Services?.GetService<IProcessHelper>();
+            if (helper == null)
+            {
+                Logger.Warn($"{GetType().Name}: IProcessHelper could not be resolved from DI; using design-time fallback. Metric values will be placeholders.");
+                helper = new DesignTimeProcessHelper();
+            }
+            ProcessHelper = helper;
         }
 
         /// <summary>
@@ -55,7 +62,7 @@ namespace Servy.Manager.Converters
         /// <param name="value">The process usage value, typically an unboxed value type or its nullable equivalent.</param>
         /// <param name="targetType">The type of the binding target property; typically <see cref="string"/>.</param>
         /// <param name="parameter">Optional converter parameter; not used in this implementation.</param>
-        /// <param name="culture">The culture to use in the converter; uses the system's current UI culture.</param>
+        /// <param name="culture">The culture information for the conversion; currently unused.</param>
         /// <returns>
         /// A string representing the formatted system metric produced by specialized subclasses, 
         /// or the <see cref="UnknownMetricUsage"/> placeholder if the value is null or an incompatible type.

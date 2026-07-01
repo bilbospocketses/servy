@@ -35,7 +35,7 @@
 $scriptDir = $PSScriptRoot
 
 $timestampFile = Join-Path $scriptDir "last-processed-toast.dat"
-$fallbackLogFile = "ServyNotification.log"
+$fallbackLogFile = "ServyFailureNotification.log"
 
 # Event ID Taxonomy (Refer to src/Servy.Core/Logging/EventIds.cs for updates)
 # 3000-3099: Core Errors | 3100-3199: Script Errors
@@ -48,34 +48,8 @@ $InterToastDelayMs       = 500   # debounce flood of toasts
 # -------------------------------
 # 2. Imports
 # -------------------------------
-$requiredDependencies = @(
-    "Servy-Watermark.psm1",
-    "ServySecurity.ps1"
-)
-
-foreach ($dep in $requiredDependencies) {
-    $depPath = Join-Path $scriptDir $dep
-
-    if (-not (Test-Path $depPath)) {
-        $errorMsg = "Servy Notification Error: Required dependency not found at '$depPath'. Please ensure the file exists in the script directory."
-        
-        # 1. Attempt to log to Event Log for administrator visibility
-        try {
-            # Best-effort: the 'Servy' event source may not be registered, so guard with try/catch.
-            Write-EventLog -LogName Application -Source "Servy" -EventId $EVENT_ID_DEPENDENCY_ERROR `
-                -EntryType Error -Message $errorMsg -ErrorAction Stop
-        } catch {
-            # 2. Fallback to stderr if Event Log fails (or source isn't registered)
-            Write-Error $errorMsg
-        }
-
-        # 3. Exit with error code
-        exit 1
-    }
-
-    # File exists, proceed with dot-sourcing or importing
-    if ($dep -like "*.psm1") { Import-Module $depPath -Force } else { . $depPath }
-}
+$RequiredDependencies = @("Servy-Watermark.psm1", "ServySecurity.ps1")
+. (Join-Path $scriptDir "Import-ServyDependencies.ps1")
 
 # -------------------------------
 # Function to show toast notification
@@ -86,7 +60,7 @@ function Show-Notification {
     [string]$ServiceName,
     [string]$LogText,
     [DateTime]$TimeCreated,
-    [string]$scriptDir,
+    [string]$ScriptDir,
     [string]$FallbackLogFile
   )
 
@@ -120,7 +94,7 @@ function Show-Notification {
 
     if ($null -eq $titleNode -or $null -eq $bodyNode) {
         # ROBUSTNESS: Schema structure mismatches are unrecoverable; classify as a permanent failure.
-        Write-FallbackError -Message "ServyToast: Unsupported Toast XML structure. Could not locate text nodes for Title or Body." -scriptDir $scriptDir -FallbackFileName $FallbackLogFile
+        Write-FallbackError -Message "ServyToast: Unsupported Toast XML structure. Could not locate text nodes for Title or Body." -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile
         return 'PermanentFailure'
     }
 
@@ -134,7 +108,8 @@ function Show-Notification {
 
     # Initialize Notification
     $toast = New-Object Windows.UI.Notifications.ToastNotification($serializedXml)
-    $tag = "Servy-$($TimeCreated.ToString('yyyyMMddHHmmssfff'))-$($ServiceName -replace '\s','')"
+    $ts  = $TimeCreated.ToString('yyyyMMddHHmmssfff', [System.Globalization.CultureInfo]::InvariantCulture)
+    $tag = "Servy-$ts-$($ServiceName -replace '\s','')"
     $tag = $tag.Substring(0, [Math]::Min($tag.Length, $MaxToastTagLength)) # Max $MaxToastTagLength chars
     $toast.Tag = $tag
     $toast.Group = "Servy" # cluster all Servy toasts together
@@ -147,7 +122,7 @@ function Show-Notification {
     try {
         if ($notifier.Setting -ne [Windows.UI.Notifications.NotificationSetting]::Enabled) {
             $settingState = $notifier.Setting.ToString()
-            Write-FallbackError -Message "ServyToast: Notification delivery aborted due to platform settings suppression ($settingState). Skipping watermark advance." -scriptDir $scriptDir -FallbackFileName $FallbackLogFile
+            Write-FallbackError -Message "ServyToast: Notification delivery aborted due to platform settings suppression ($settingState). Skipping watermark advance." -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile
             
             # ROBUSTNESS: Treat platform-level notification suppression as a terminal delivery result.
             # Returning 'PermanentFailure' ensures the watermark is updated and the queue 
@@ -184,7 +159,7 @@ function Show-Notification {
     }
 
     if ($failedRef.Value) {
-        Write-FallbackError -Message ("ServyToast: Delivery failed (0x{0:X})." -f $failCode.Value) -scriptDir $scriptDir -FallbackFileName $FallbackLogFile
+        Write-FallbackError -Message ("ServyToast: Delivery failed (0x{0:X})." -f $failCode.Value) -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile
         return 'TransientFailure'
     }
 
@@ -192,7 +167,7 @@ function Show-Notification {
   } catch {
     # System path drops or memory boundaries represent runtime environmental/transient errors
     $syncError = "ServyToast: Notification path failed. Details: $($_.Exception.Message)"
-    Write-FallbackError -Message $syncError -scriptDir $scriptDir -FallbackFileName $FallbackLogFile
+    Write-FallbackError -Message $syncError -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile
     return 'TransientFailure'
   }
 }
@@ -222,10 +197,9 @@ foreach ($evt in $eventsToProcess) {
     $deliveryStatus = Show-Notification -ServiceName $parsed.ServiceName `
                                         -LogText $parsed.LogText `
                                         -TimeCreated $evt.TimeCreated `
-                                        -scriptDir $scriptDir `
+                                        -ScriptDir $scriptDir `
                                         -FallbackLogFile $fallbackLogFile
     
-    # ROBUSTNESS: Re-architected watermarking filter path to match ServyFailureEmail.ps1.
     # Advance the event queue timestamp pointer for either clear success or permanent, unfixable configuration blocks.
     # Only break the processing loop without modifying the index watermark on clear TransientFailure states.
     switch ($deliveryStatus) {

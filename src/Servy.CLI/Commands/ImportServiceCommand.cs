@@ -9,7 +9,7 @@ using Servy.Core.Logging;
 using Servy.Core.Mappers;
 using Servy.Core.Security;
 using Servy.Core.Services;
-using Servy.Core.Validators;
+using Servy.Core.Validation;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
@@ -63,11 +63,11 @@ namespace Servy.CLI.Commands
         /// <param name="opts">Import service options.</param>
         /// <param name="cancellationToken">Optional cancellation token.</param>
         /// <returns>A <see cref="CommandResult"/> indicating success or failure.</returns>
-        [SuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "linker.xml")]
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "linker.xml")]
         public async Task<CommandResult> ExecuteAsync(ImportServiceOptions opts, CancellationToken cancellationToken = default)
         {
-            var action = $"import configuration from '{opts.Path}'";
-            var suggestion = "Check that the file path is correct, the file format is valid JSON or XML, and you have read permissions.";
+            var action = string.Format(Strings.Msg_ImportServiceAction, opts.Path);
+            var suggestion = Strings.Msg_ImportServiceSuggestion;
 
             return await ExecuteWithHandlingAsync("import", action, suggestion, async () =>
             {
@@ -106,9 +106,7 @@ namespace Servy.CLI.Commands
                         result = await ProcessJsonAsync(opts, content, cancellationToken: cancellationToken);
                         break;
                     default:
-                        result = CommandResult.Fail(string.Format(Strings.Msg_UnsupportedFileType, configFileType));
-                        Logger.Error($"Unsupported configuration file type: {opts.ConfigFileType}");
-                        break;
+                        return CommandResult.Fail(string.Format(Strings.Msg_UnsupportedFileType, opts.ConfigFileType));
                 }
 
                 if (result.Success)
@@ -139,8 +137,8 @@ namespace Servy.CLI.Commands
                 "XML",
                 xmlContent => _xmlServiceValidator.TryValidate(xmlContent, out var err) ? (true, null) : (false, err),
                 dto => _serviceRepository.UpsertAsync(
-                        dto, 
-                        preserveExistingRuntimeState: true, 
+                        dto,
+                        preserveExistingRuntimeState: true,
                         preserveExistingCredentials: true,
                         cancellationToken: cancellationToken
                         ),
@@ -155,7 +153,7 @@ namespace Servy.CLI.Commands
         /// <param name="content">The content of the JSON configuration file.</param>
         /// <param name="cancellationToken">Optional cancellation token</param>
         /// <returns>A <see cref="CommandResult"/> indicating success or failure.</returns>
-        [SuppressMessage("Trimming", "IL2026", Justification = "Awaiting full trimming support")]
+        [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Awaiting full trimming support")]
         private Task<CommandResult> ProcessJsonAsync(ImportServiceOptions opts, string content, CancellationToken cancellationToken = default)
         {
             return ProcessImportInternalAsync(

@@ -22,13 +22,13 @@
     and pauses at the end to allow double-click usage from Explorer.
 
     Requirements:
-        1. MSBuild must be available in PATH.
+        1. .NET SDK (dotnet CLI must be available in PATH).
         2. Inno Setup (ISCC.exe) installed and accessible.
         3. 7-Zip installed with `7z` available in PATH.
 #>
 
 # publish.ps1
-# Main setup bundle script for building both self-contained and framework-dependent installers
+# Main setup bundle script for building the self-contained installer.
 
 param(
     [string]$Tfm     = "", 
@@ -71,7 +71,6 @@ try {
 
         if (-not (Test-Path $fullPath)) {
             Write-Error "Script not found: $fullPath"
-            return
         }
 
         Write-Host "`n=== Running: $fullPath ==="
@@ -115,8 +114,7 @@ finally {
     # ROBUSTNESS: Detect if running in a non-interactive environment (CI pipeline, automated task).
     # If [Environment]::UserInteractive evaluates to false or no physical window is attached, 
     # bypass the ReadKey sequence entirely to prevent the process from hanging indefinitely.
-    $isInteractive = [Environment]::UserInteractive -and 
-                     ($Host.Name -eq 'ConsoleHost' -or $Host.Name -like '*Console*')
+    $isInteractive = [Environment]::UserInteractive -and ($Host.Name -like '*Console*')
 
     if ($isInteractive) {
         # Pause by default (for double-click usage)
@@ -128,22 +126,11 @@ finally {
         }
 
         try {
-            if ($Host.Name -eq 'ConsoleHost' -or $Host.Name -like '*Console*') {
-                [void][System.Console]::ReadKey($true)
-            }
-            else {
-                try {
-                    $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-                }
-                catch {
-                    Read-Host | Out-Null
-                }
-            }
+            [void][System.Console]::ReadKey($true)
         }
         catch { }
     }
     else {
-        # Log failure layout directly to the tracking stream for automated log monitoring parses
         if ($scriptHadError) {
             Write-Warning "Build execution terminated with errors. Non-zero exit code enforced for automation handler."
         }

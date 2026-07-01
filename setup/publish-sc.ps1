@@ -9,7 +9,7 @@
     and generates a portable 7z package containing the published executables.
 
 .PARAMETER Tfm
-    Target framework moniker prefix (e.g., "net10.0").
+     Target framework moniker (e.g., "net10.0-windows"). Defaults to the value in build-config.ps1.
 
 .PARAMETER Version
     Application version used for installer and ZIP output file names.
@@ -36,9 +36,9 @@ $ErrorActionPreference = "Stop"
 $configPath = Join-Path $PSScriptRoot "build-config.ps1"
 if (Test-Path $configPath) {
     $buildConfig = & $configPath
-    if (-not $Tfm) { $Tfm = $buildConfig.Tfm }
-    if (-not $Version) { $Version = $buildConfig.Version }
-    $BuildConfiguration = $buildConfig.BuildConfiguration
+    if (-not $Tfm) { $Tfm = $buildConfig.Tfm.Trim() }
+    if (-not $Version) { $Version = $buildConfig.Version.Trim() }
+    $BuildConfiguration = $buildConfig.BuildConfiguration.Trim()
     $Runtime = $buildConfig.Runtime.Trim()
 } else {
     throw "Central build configuration not found at $configPath"
@@ -91,7 +91,6 @@ try {
 }
 catch {
     Write-Error "Configuration Failed: $($_.Exception.Message)"
-    exit 1
 }
 
 # ========================
@@ -142,7 +141,6 @@ if (Test-Path $installerPath) {
     }
 } else {
     Write-Error "Installer executable not found at $installerPath after Inno Setup build."
-    exit 1
 }
 
 # ========================
@@ -176,7 +174,6 @@ try {
 }
 catch {
     Write-Error "Packaging failed: $_"
-    exit 1
 }
 finally {
     # ALWAYS clean up the temporary workspace folder, even on failure

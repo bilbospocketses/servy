@@ -7,11 +7,11 @@ using Servy.Core.Services;
 using Servy.Models;
 using Servy.Services;
 using Servy.UI.Services;
-using Servy.Validators;
+using Servy.Validation;
 
 namespace Servy.UnitTests.Services
 {
-    public class ServiceCommandsTests:IDisposable
+    public class ServiceCommandsTests : IDisposable
     {
         private readonly string _wrapperPath = Core.Config.AppConfig.GetServyUIServicePath();
         private bool _createdWrapperFile = false;
@@ -120,7 +120,7 @@ namespace Servy.UnitTests.Services
 
             // Assert
             Assert.False(result);
-            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_InvalidWrapperExePath, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_InvalidWrapperExePath, UiAppConfig.Caption), Times.Once);
 
             // Re-initialize for subsequent runs
             SetupDummyWrapperExe();
@@ -150,7 +150,7 @@ namespace Servy.UnitTests.Services
             var dto = new ServiceDto { Name = "LocalSysService", UserAccount = "OldUser", Password = "OldPassword" };
 
             _modelToServiceDtoMock.Setup(m => m()).Returns(dto);
-            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, It.IsAny<string>(), "abc")).ReturnsAsync(true);
+            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, It.IsAny<string>(), "abc", It.IsAny<bool>(),  It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
             // Act
             await sut.InstallService(config, CancellationToken.None);
@@ -169,7 +169,7 @@ namespace Servy.UnitTests.Services
             var dto = new ServiceDto { Name = "InvalidService" };
 
             _modelToServiceDtoMock.Setup(m => m()).Returns(dto);
-            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(false);
+            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
             // Act
             var result = await sut.InstallService(config, CancellationToken.None);
@@ -188,9 +188,9 @@ namespace Servy.UnitTests.Services
             var dto = new ServiceDto { Name = "ExistingService" };
 
             _modelToServiceDtoMock.Setup(m => m()).Returns(dto);
-            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
+            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
             _serviceManagerMock.Setup(m => m.IsServiceInstalled("ExistingService", It.IsAny<CancellationToken>())).Returns(true);
-            _messageBoxService.Setup(m => m.ShowConfirmAsync(Resources.Strings.Msg_ServiceAlreadyExists, AppConfig.Caption)).ReturnsAsync(false);
+            _messageBoxService.Setup(m => m.ShowConfirmAsync(Resources.Strings.Msg_ServiceAlreadyExists, UiAppConfig.Caption)).ReturnsAsync(false);
 
             // Act
             var result = await sut.InstallService(config, CancellationToken.None);
@@ -209,7 +209,7 @@ namespace Servy.UnitTests.Services
             var dto = new ServiceDto { Name = "FailingInstallation" };
 
             _modelToServiceDtoMock.Setup(m => m()).Returns(dto);
-            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
+            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
             _serviceManagerMock.Setup(m => m.InstallServiceAsync(It.IsAny<InstallServiceOptions>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(OperationResult.Failure("Access Denied OS Driver Error"));
 
@@ -218,7 +218,7 @@ namespace Servy.UnitTests.Services
 
             // Assert
             Assert.False(result);
-            _messageBoxService.Verify(m => m.ShowErrorAsync("Access Denied OS Driver Error", AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync("Access Denied OS Driver Error", UiAppConfig.Caption), Times.Once);
         }
 
         [Fact]
@@ -230,7 +230,7 @@ namespace Servy.UnitTests.Services
             var dto = new ServiceDto { Name = "SecureService" };
 
             _modelToServiceDtoMock.Setup(m => m()).Returns(dto);
-            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
+            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
             _serviceManagerMock.Setup(m => m.InstallServiceAsync(It.IsAny<InstallServiceOptions>(), It.IsAny<CancellationToken>()))
                 .ThrowsAsync(new UnauthorizedAccessException());
 
@@ -239,7 +239,7 @@ namespace Servy.UnitTests.Services
 
             // Assert
             Assert.False(result);
-            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_AdminRightsRequired, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_AdminRightsRequired, UiAppConfig.Caption), Times.Once);
         }
 
         [Fact]
@@ -251,7 +251,7 @@ namespace Servy.UnitTests.Services
             var dto = new ServiceDto { Name = "CrashingService" };
 
             _modelToServiceDtoMock.Setup(m => m()).Returns(dto);
-            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
+            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
             _serviceManagerMock.Setup(m => m.InstallServiceAsync(It.IsAny<InstallServiceOptions>(), It.IsAny<CancellationToken>()))
                 .ThrowsAsync(new Exception("Fatal Kernel Loop"));
 
@@ -260,7 +260,7 @@ namespace Servy.UnitTests.Services
 
             // Assert
             Assert.False(result);
-            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_UnexpectedError, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_UnexpectedError, UiAppConfig.Caption), Times.Once);
         }
 
         #endregion
@@ -278,10 +278,10 @@ namespace Servy.UnitTests.Services
             _appConfigMock.Setup(c => c.ManagerAppPublishPath).Returns(path);
 
             // Act
-            await sut.OpenManager();
+            await sut.OpenManager(cancellationToken: TestContext.Current.CancellationToken);
 
             // Assert
-            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_ManagerAppNotFound, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_ManagerAppNotFound, UiAppConfig.Caption), Times.Once);
         }
 
         [Fact]
@@ -303,10 +303,10 @@ namespace Servy.UnitTests.Services
             try
             {
                 // Act
-                await sut.OpenManager();
+                await sut.OpenManager(cancellationToken: TestContext.Current.CancellationToken);
 
                 // Assert
-                _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_ManagerAppLaunchFailed, AppConfig.Caption), Times.Once);
+                _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_ManagerAppLaunchFailed, UiAppConfig.Caption), Times.Once);
             }
             finally
             {
@@ -335,7 +335,7 @@ namespace Servy.UnitTests.Services
 
             // Assert
             Assert.False(result);
-            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_ServiceNotFound, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_ServiceNotFound, UiAppConfig.Caption), Times.Once);
         }
 
         [Fact]
@@ -352,7 +352,7 @@ namespace Servy.UnitTests.Services
 
             // Assert
             Assert.False(result);
-            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_ServiceDisabledError, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_ServiceDisabledError, UiAppConfig.Caption), Times.Once);
         }
 
         [Fact]
@@ -370,7 +370,7 @@ namespace Servy.UnitTests.Services
 
             // Assert
             Assert.False(result);
-            _messageBoxService.Verify(m => m.ShowErrorAsync("Service is deadlocked. Control failed.", AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync("Service is deadlocked. Control failed.", UiAppConfig.Caption), Times.Once);
         }
 
         [Fact]
@@ -388,7 +388,7 @@ namespace Servy.UnitTests.Services
 
             // Assert
             Assert.False(result);
-            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_AdminRightsRequired, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_AdminRightsRequired, UiAppConfig.Caption), Times.Once);
         }
 
         [Fact]
@@ -406,7 +406,7 @@ namespace Servy.UnitTests.Services
 
             // Assert
             Assert.False(result);
-            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_UnexpectedError, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_UnexpectedError, UiAppConfig.Caption), Times.Once);
         }
 
         #endregion
@@ -429,7 +429,7 @@ namespace Servy.UnitTests.Services
             // Assert
             Assert.False(result);
             // Verify core localization payload warning mechanics fired
-            _messageBoxService.Verify(m => m.ShowWarningAsync(It.IsAny<string>(), AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowWarningAsync(It.IsAny<string>(), UiAppConfig.Caption), Times.Once);
         }
 
         #endregion
@@ -444,7 +444,7 @@ namespace Servy.UnitTests.Services
             _dialogServiceMock.Setup(d => d.SaveXml(It.IsAny<string>())).Returns(string.Empty);
 
             // Act
-            await sut.ExportXmlConfig("password");
+            await sut.ExportXmlConfig("password", cancellationToken: TestContext.Current.CancellationToken);
 
             // Assert
             _modelToServiceDtoMock.Verify(m => m(), Times.Never);
@@ -460,10 +460,10 @@ namespace Servy.UnitTests.Services
 
             var dto = new ServiceDto { Name = "BadExport" };
             _modelToServiceDtoMock.Setup(m => m()).Returns(dto);
-            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, null, "password")).ReturnsAsync(false);
+            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, null, "password", It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
             // Act
-            await sut.ExportXmlConfig("password");
+            await sut.ExportXmlConfig("password", cancellationToken: TestContext.Current.CancellationToken);
 
             // Assert
             Assert.False(File.Exists(path));
@@ -471,25 +471,21 @@ namespace Servy.UnitTests.Services
         }
 
         [Fact]
-        public async Task ExportConfig_SerializationExceptionThrown_CatchCatchesAndShowsUnexpectedError()
+        public async Task ExportConfig_ModelExtractionThrows_ShowsUnexpectedError()
         {
             // Arrange
             var sut = CreateSut();
             var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.xml");
             _dialogServiceMock.Setup(d => d.SaveXml(It.IsAny<string>())).Returns(path);
 
-            var dto = new ServiceDto { Name = "CrashExport" };
-            _modelToServiceDtoMock.Setup(m => m()).Returns(dto);
-            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, null, "password")).ReturnsAsync(true);
-
             // Emulating an internal static/serializer fault path execution
             _modelToServiceDtoMock.Setup(m => m()).Throws(new IOException("Disk Full / Access Denied"));
 
             // Act
-            await sut.ExportXmlConfig("password");
+            await sut.ExportXmlConfig("password", cancellationToken: TestContext.Current.CancellationToken);
 
             // Assert
-            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_UnexpectedError, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_UnexpectedError, UiAppConfig.Caption), Times.Once);
         }
 
         #endregion
@@ -506,7 +502,7 @@ namespace Servy.UnitTests.Services
             _dialogServiceMock.Setup(d => d.OpenXml()).Returns(returnedPath!);
 
             // Act
-            await sut.ImportXmlConfig();
+            await sut.ImportXmlConfig(cancellationToken: TestContext.Current.CancellationToken);
 
             // Assert
             _xmlServiceValidatorMock.Verify(v => v.TryValidate(It.IsAny<string>(), out It.Ref<string?>.IsAny), Times.Never);
@@ -522,10 +518,10 @@ namespace Servy.UnitTests.Services
             _dialogServiceMock.Setup(d => d.OpenXml()).Returns(uncPath);
 
             // Act
-            await sut.ImportXmlConfig();
+            await sut.ImportXmlConfig(cancellationToken: TestContext.Current.CancellationToken);
 
             // Assert
-            _messageBoxService.Verify(m => m.ShowErrorAsync(Core.Resources.Strings.Msg_SecurityUncPathProhibited, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync(Core.Resources.Strings.Msg_SecurityUncPathProhibited, UiAppConfig.Caption), Times.Once);
         }
 
         [Fact]
@@ -543,10 +539,10 @@ namespace Servy.UnitTests.Services
             try
             {
                 // Act
-                await sut.ImportJsonConfig();
+                await sut.ImportJsonConfig(cancellationToken: TestContext.Current.CancellationToken);
 
                 // Assert
-                _messageBoxService.Verify(m => m.ShowErrorAsync("Missing closing brace delimiter.", AppConfig.Caption), Times.Once);
+                _messageBoxService.Verify(m => m.ShowErrorAsync("Missing closing brace delimiter.", UiAppConfig.Caption), Times.Once);
             }
             finally
             {
@@ -570,10 +566,10 @@ namespace Servy.UnitTests.Services
             try
             {
                 // Act
-                await sut.ImportXmlConfig();
+                await sut.ImportXmlConfig(cancellationToken: TestContext.Current.CancellationToken);
 
                 // Assert
-                _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_FailedToLoadXml, AppConfig.Caption), Times.Once);
+                _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_FailedToLoadXml, UiAppConfig.Caption), Times.Once);
             }
             finally
             {
@@ -596,12 +592,12 @@ namespace Servy.UnitTests.Services
             string? errorOut = null;
             _jsonServiceValidatorMock.Setup(v => v.TryValidate(It.IsAny<string>(), out errorOut)).Returns(true);
             _jsonServiceSerializerMock.Setup(s => s.Deserialize(It.IsAny<string>())).Returns(sampleDto);
-            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(sampleDto, It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(false);
+            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(sampleDto, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
             try
             {
                 // Act
-                await sut.ImportJsonConfig();
+                await sut.ImportJsonConfig(cancellationToken: TestContext.Current.CancellationToken);
 
                 // Assert
                 Assert.False(bindCalled);
@@ -620,10 +616,10 @@ namespace Servy.UnitTests.Services
             _dialogServiceMock.Setup(d => d.OpenXml()).Throws(new IOException("Hardware File Lock Denied"));
 
             // Act
-            await sut.ImportXmlConfig();
+            await sut.ImportXmlConfig(cancellationToken: TestContext.Current.CancellationToken);
 
             // Assert
-            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_UnexpectedError, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_UnexpectedError, UiAppConfig.Caption), Times.Once);
         }
 
         #endregion
@@ -643,7 +639,7 @@ namespace Servy.UnitTests.Services
 
             // Assert
             Assert.False(result);
-            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_ServiceNotFound, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_ServiceNotFound, UiAppConfig.Caption), Times.Once);
             _serviceManagerMock.Verify(m => m.UninstallServiceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
         }
 
@@ -662,7 +658,7 @@ namespace Servy.UnitTests.Services
 
             // Assert
             Assert.False(result);
-            _messageBoxService.Verify(m => m.ShowErrorAsync("Service marked for deletion.", AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync("Service marked for deletion.", UiAppConfig.Caption), Times.Once);
         }
 
         [Fact]
@@ -680,7 +676,7 @@ namespace Servy.UnitTests.Services
 
             // Assert
             Assert.False(result);
-            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_AdminRightsRequired, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_AdminRightsRequired, UiAppConfig.Caption), Times.Once);
         }
 
         [Fact]
@@ -698,7 +694,7 @@ namespace Servy.UnitTests.Services
 
             // Assert
             Assert.False(result);
-            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_UnexpectedError, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_UnexpectedError, UiAppConfig.Caption), Times.Once);
         }
 
         [Fact]
@@ -725,7 +721,7 @@ namespace Servy.UnitTests.Services
 
             // Verify that the success info dialog box line was executed with the expected arguments
             _messageBoxService.Verify(m =>
-                m.ShowInfoAsync(Resources.Strings.Msg_ServiceRemoved, AppConfig.Caption),
+                m.ShowInfoAsync(Resources.Strings.Msg_ServiceRemoved, UiAppConfig.Caption),
                 Times.Once);
         }
 
@@ -749,7 +745,7 @@ namespace Servy.UnitTests.Services
 
             // Assert
             Assert.True(result);
-            _messageBoxService.Verify(m => m.ShowInfoAsync(Resources.Strings.Msg_ServiceRestarted, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowInfoAsync(Resources.Strings.Msg_ServiceRestarted, UiAppConfig.Caption), Times.Once);
         }
 
         [Fact]
@@ -766,7 +762,7 @@ namespace Servy.UnitTests.Services
 
             // Assert
             Assert.False(result);
-            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_ServiceDisabledError, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_ServiceDisabledError, UiAppConfig.Caption), Times.Once);
             _serviceManagerMock.Verify(m => m.RestartServiceAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
         }
 
@@ -782,7 +778,7 @@ namespace Servy.UnitTests.Services
             _dialogServiceMock.Setup(d => d.SaveJson(It.IsAny<string>())).Returns(string.Empty);
 
             // Act
-            await sut.ExportJsonConfig("secretPassword");
+            await sut.ExportJsonConfig("secretPassword", cancellationToken: TestContext.Current.CancellationToken);
 
             // Assert
             _modelToServiceDtoMock.Verify(m => m(), Times.Never);
@@ -798,10 +794,10 @@ namespace Servy.UnitTests.Services
 
             var dto = new ServiceDto { Name = "BadJsonExport" };
             _modelToServiceDtoMock.Setup(m => m()).Returns(dto);
-            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, null, "secretPassword")).ReturnsAsync(false);
+            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, null, "secretPassword", It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
             // Act
-            await sut.ExportJsonConfig("secretPassword");
+            await sut.ExportJsonConfig("secretPassword", cancellationToken: TestContext.Current.CancellationToken);
 
             // Assert
             Assert.False(File.Exists(path));
@@ -809,25 +805,21 @@ namespace Servy.UnitTests.Services
         }
 
         [Fact]
-        public async Task ExportJsonConfig_SerializationExceptionThrown_CatchCatchesAndShowsUnexpectedError()
+        public async Task ExportJsonConfig_ModelExtractionThrows_ShowsUnexpectedError()
         {
             // Arrange
             var sut = CreateSut();
             var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.json");
             _dialogServiceMock.Setup(d => d.SaveJson(It.IsAny<string>())).Returns(path);
 
-            var dto = new ServiceDto { Name = "CrashJsonExport" };
-            _modelToServiceDtoMock.Setup(m => m()).Returns(dto);
-            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(dto, null, "secretPassword")).ReturnsAsync(true);
-
             // Force evaluation down the catch lane by breaking dependencies on data extraction execution
             _modelToServiceDtoMock.Setup(m => m()).Throws(new UnauthorizedAccessException("I/O Lock Encountered"));
 
             // Act
-            await sut.ExportJsonConfig("secretPassword");
+            await sut.ExportJsonConfig("secretPassword", cancellationToken: TestContext.Current.CancellationToken);
 
             // Assert
-            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_UnexpectedError, AppConfig.Caption), Times.Once);
+            _messageBoxService.Verify(m => m.ShowErrorAsync(Resources.Strings.Msg_UnexpectedError, UiAppConfig.Caption), Times.Once);
         }
 
         #endregion
@@ -848,7 +840,9 @@ namespace Servy.UnitTests.Services
             _serviceConfigurationValidator.Setup(d => d.ValidateAsync(
                 It.IsAny<ServiceDto>(),
                 It.IsAny<string?>(),
-                It.IsAny<string?>()))
+                It.IsAny<string?>(),
+                It.IsAny<bool>(), 
+                It.IsAny<CancellationToken>()))
                 .ReturnsAsync(true);
 
             bool delegateWasInvoked = false;
@@ -864,8 +858,7 @@ namespace Servy.UnitTests.Services
             };
 
             // Act
-            // Accessing the private ExportConfigAsync method via reflection or testing it 
-            // through the public wrapper methods using a reflection invoke on the wrapper
+            // Invoke the private ExportConfigAsync directly via reflection to exercise the exportAction delegate
             var privateMethod = typeof(ServiceCommands).GetMethod("ExportConfigAsync",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
@@ -875,7 +868,8 @@ namespace Servy.UnitTests.Services
                 new Func<string?>(() => path),
                 spyExportAction,
                 "JSON",
-                "Success"
+                "Success",
+                CancellationToken.None,
             })!;
 
             await task;
@@ -905,7 +899,7 @@ namespace Servy.UnitTests.Services
             _xmlServiceValidatorMock.Setup(v => v.TryValidate(It.IsAny<string>(), out validationError)).Returns(true);
             _xmlServiceSerializerMock.Setup(s => s.Deserialize(It.IsAny<string>())).Returns(expectedDto);
 
-            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(expectedDto, It.IsAny<string>(), It.IsAny<string>()))
+            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(expectedDto, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(true);
 
             bool bindActionWasExecuted = false;
@@ -921,7 +915,7 @@ namespace Servy.UnitTests.Services
             try
             {
                 // Act
-                await sut.ImportXmlConfig();
+                await sut.ImportXmlConfig(cancellationToken: TestContext.Current.CancellationToken);
 
                 // Assert
                 Assert.True(bindActionWasExecuted, "The _bindServiceDtoToModel(dto) logic line was not executed.");
@@ -949,7 +943,7 @@ namespace Servy.UnitTests.Services
             _jsonServiceValidatorMock.Setup(v => v.TryValidate(It.IsAny<string>(), out validationError)).Returns(true);
             _jsonServiceSerializerMock.Setup(s => s.Deserialize(It.IsAny<string>())).Returns(expectedDto);
 
-            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(expectedDto, It.IsAny<string>(), It.IsAny<string>()))
+            _serviceConfigurationValidator.Setup(v => v.ValidateAsync(expectedDto, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(true);
 
             bool bindActionWasExecuted = false;
@@ -964,7 +958,7 @@ namespace Servy.UnitTests.Services
             try
             {
                 // Act
-                await sut.ImportJsonConfig();
+                await sut.ImportJsonConfig(cancellationToken: TestContext.Current.CancellationToken);
 
                 // Assert
                 Assert.True(bindActionWasExecuted, "The _bindServiceDtoToModel(dto) logic line was not executed.");

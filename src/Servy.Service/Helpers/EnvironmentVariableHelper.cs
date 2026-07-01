@@ -39,7 +39,7 @@ namespace Servy.Service.Helpers
         /// from being parsed during the fixed-point expansion loop. Uses the Unicode Replacement 
         /// Character (\uFFFD) to guarantee no collisions with legitimate user input.
         /// </summary>
-        private const string PercentEscapeToken = "\uFFFD_SERVY_ESC_PERCENT_\uFFFD";
+        internal const string PercentEscapeToken = "\uFFFD_SERVY_ESC_PERCENT_\uFFFD";
 
         /// <summary>
         /// Protected system variables that should never be overridden by user configuration
@@ -199,7 +199,7 @@ namespace Servy.Service.Helpers
                     string expanded = ExpandWithDictionary(original, passSnapshot, key, protectInjectedValues: true);
 
                     // Exponential growth guard
-                    if (expanded != null && expanded.Length > AppConfig.MaxEnvVarExpandedLength)
+                    if (!string.IsNullOrEmpty(expanded) && expanded.Length > AppConfig.MaxEnvVarExpandedLength)
                     {
                         Logger.Warn($"Expansion of '{key}' exceeded {AppConfig.MaxEnvVarExpandedLength} characters. Truncating to prevent memory exhaustion.");
 
@@ -324,7 +324,12 @@ namespace Servy.Service.Helpers
                     }
                     else
                     {
-                        replacement = Regex.Replace(replacement, Regex.Escape(token), m => inheritedValue, RegexOptions.IgnoreCase);
+                        replacement = Regex.Replace(
+                            replacement, 
+                            Regex.Escape(token), 
+                            m => inheritedValue, 
+                            RegexOptions.IgnoreCase,
+                            AppConfig.InputRegexTimeout);
                     }
                 }
 
@@ -363,8 +368,8 @@ namespace Servy.Service.Helpers
             if (value.Length <= maxLength) return value;
 
             // We must check if the strict truncation boundary (maxLength) cuts directly through 
-            // a PercentEscapeToken. Since the token is exactly 21 characters long, we only need 
-            // to inspect indices where a token could start and subsequently straddle the cut-line.
+            // a PercentEscapeToken. Since the token has a fixed length (PercentEscapeToken.Length),
+            // we only need to inspect indices where a token could start and subsequently straddle the cut-line.
             int startBound = Math.Max(0, maxLength - PercentEscapeToken.Length + 1);
 
             for (int i = startBound; i < maxLength; i++)

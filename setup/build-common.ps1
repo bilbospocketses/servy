@@ -67,8 +67,7 @@ function Invoke-StandardPublish {
         [Parameter(Mandatory=$true)][string]$ProjectName,
         [string]$Tfm = "net10.0-windows",
         [string]$Runtime = "win-x64",
-        [string]$BuildConfiguration = "Release",
-        [switch]$FrameworkDependent
+        [string]$BuildConfiguration = "Release"
     )
 
     # Step 0: Publish resources if script exists
@@ -85,8 +84,7 @@ function Invoke-StandardPublish {
     # Step 1: Build and Publish
     $projectPath = Join-Path $ProjectDir "$ProjectName.csproj"
     if (-not (Test-Path $projectPath)) {
-        Write-Error "Project file not found: $projectPath"
-        return
+        throw "Project file not found: $projectPath"
     }
 
     Write-Host "=== Publishing $ProjectName.csproj ===" -ForegroundColor Cyan
@@ -102,41 +100,19 @@ function Invoke-StandardPublish {
         & dotnet clean $projectPath -c $BuildConfiguration
     }
 
-    if ($FrameworkDependent) {
-        Invoke-WithRetry -ErrorMessage "dotnet publish failed" -Command {
-            & dotnet publish $projectPath `
-                -c $BuildConfiguration `
-                -r $Runtime `
-                --self-contained false `
-                --no-restore `
-                --nologo `
-                --verbosity minimal `
-                /p:PublishSingleFile=false `
-                /p:IncludeAllContentForSelfExtract=true `
-                /p:PublishTrimmed=false `
-                /p:DebugType=None `
-                /p:DebugSymbols=false `
-                /p:CopyOutputSymbolsToPublishDirectory=false `
-                /p:CopyCommandLineArguments=false `
-                /p:ErrorOnDuplicatePublishOutputFiles=true `
-                /p:UseAppHost=true `
-                /p:Clean=true `
-                /p:DeleteExistingFiles=true
-        }
-    } else {
-        Invoke-WithRetry -ErrorMessage "dotnet publish failed" -Command {
-            & dotnet publish $projectPath `
-                -c $BuildConfiguration `
-                -r $Runtime `
-                --self-contained true `
-                --force `
-                /p:DeleteExistingFiles=true
-        }
+    Invoke-WithRetry -ErrorMessage "dotnet publish failed" -Command {
+        & dotnet publish $projectPath `
+            -c $BuildConfiguration `
+            -r $Runtime `
+            --self-contained true `
+            --no-restore `
+            --force `
+            /p:DeleteExistingFiles=true
     }
 
     # Step 2: Sign the published executable if signing is enabled
     if ($BuildConfiguration -eq "Release") {
-        $signPath = Join-Path $PSScriptRoot "signpath.ps1"
+        $signPath = Join-Path $BC_ScriptDir "signpath.ps1"
         $publishFolder = Join-Path $ProjectDir "bin\$BuildConfiguration\$Tfm\$Runtime\publish"
         $exePath       = Join-Path $publishFolder "$ProjectName.exe"
 

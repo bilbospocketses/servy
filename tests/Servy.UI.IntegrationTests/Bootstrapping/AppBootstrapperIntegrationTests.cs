@@ -4,11 +4,12 @@ using Servy.Core.Helpers;
 using Servy.Core.Logging;
 using Servy.Core.Security;
 using Servy.Infrastructure.Helpers;
+using Servy.UI.Bootstrapping;
 using System.Reflection;
 using System.Windows;
 using Helper = Servy.Testing.Helper;
 
-namespace Servy.UI.Bootstrapping.Tests
+namespace Servy.UI.IntegrationTests.Bootstrapping
 {
     [Collection("Servy.UI.Bootstrapping.Tests")]
     public class AppBootstrapperIntegrationTests : IDisposable
@@ -114,7 +115,7 @@ namespace Servy.UI.Bootstrapping.Tests
             // to ensure internal thread safety boundaries match Application.Current initialization rules.
             await Helper.RunOnSTA(async () =>
             {
-                var app = SecureCreateApplication();
+                var app = Helper.EnsureApplication();
                 var bootstrapper = new AppBootstrapper(_options, _mockProcessKiller.Object);
 
                 SetStaticBooleanMock(typeof(SecurityHelper), "_isAdministratorMockValue", true);
@@ -142,16 +143,6 @@ namespace Servy.UI.Bootstrapping.Tests
         #endregion
 
         #region Reflection Infrastructure Scaffolding Helpers
-
-        private Application SecureCreateApplication()
-        {
-            if (Application.Current == null)
-            {
-                // Force instantiate a headless application tracking scope bounds allocation context
-                new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-            }
-            return Application.Current!;
-        }
 
         private StartupEventArgs CreateStartupEventArgs(string[] args)
         {

@@ -9,7 +9,7 @@ namespace Servy.Core.DTOs
     public class ServiceInfo
     {
         /// <summary>
-        /// Sets or gets the unique identifier of the service.
+        /// Gets or sets the unique identifier of the service.
         /// </summary>
         public string? Name { get; set; }
 
@@ -29,7 +29,7 @@ namespace Servy.Core.DTOs
         /// Gets or sets the user account under which the service runs.
         /// Defaults to <c>LocalSystem</c> if not specified.
         /// </summary>
-        public string? LogOnAs { get; set; }
+        public string LogOnAs { get; set; }
 
         /// <summary>
         /// Gets or sets the description of the service.
@@ -43,7 +43,7 @@ namespace Servy.Core.DTOs
         public ServiceInfo()
         {
             Status = ServiceStatus.None;
-            StartupType = ServiceStartType.Automatic;
+            StartupType = AppConfig.DefaultStartupType;
             LogOnAs = ServiceAccounts.LocalSystem;
             Description = string.Empty;
         }

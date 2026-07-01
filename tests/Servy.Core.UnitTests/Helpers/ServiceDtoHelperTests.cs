@@ -2,7 +2,7 @@
 using Servy.Core.DTOs;
 using Servy.Core.Helpers;
 
-namespace Servy.UnitTests.Core.Helpers
+namespace Servy.Core.UnitTests.Helpers
 {
     public class ServiceDtoHelperTests
     {
@@ -10,8 +10,8 @@ namespace Servy.UnitTests.Core.Helpers
         public void ApplyDefaults_WhenAllPropertiesAreNull_PopulatesEveryDefault()
         {
             // Arrange: Create a DTO where all nullable properties are null
-            // Note: Since you added initializers to the DTO, we explicitly set them to null 
-            // to test the "ApplyDefaults" logic for incomplete imports.
+            // Note: ServiceDto has field initializers, so explicitly null
+            // every nullable property to exercise ApplyDefaults on an incomplete import.
             var dto = new ServiceDto
             {
                 StartupType = null,
@@ -69,7 +69,7 @@ namespace Servy.UnitTests.Core.Helpers
         {
             // Arrange: Set values that are specifically DIFFERENT from defaults
             const int customTimeout = 999;
-            const bool customToggle = true; // Assuming default is false
+            bool customToggle = !AppConfig.DefaultEnableSizeRotation; // guaranteed different from the default
 
             var dto = new ServiceDto
             {
@@ -101,9 +101,7 @@ namespace Servy.UnitTests.Core.Helpers
             ServiceDto? dto = null;
 
             // Act & Assert
-            // This verifies the helper is null-safe (if you add a null check)
-            // If you don't have a null check, this is a good reminder to add: 
-            // if (dto == null) return;
+            // ApplyDefaultsAndResetIdentity returns immediately on null (see ServiceDtoHelper)
             var exception = Record.Exception(() => ServiceDtoHelper.ApplyDefaultsAndResetIdentity(dto!));
             Assert.Null(exception);
         }

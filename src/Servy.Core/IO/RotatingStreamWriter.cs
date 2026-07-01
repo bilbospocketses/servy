@@ -10,9 +10,9 @@ using System.Text.RegularExpressions;
 namespace Servy.Core.IO
 {
     /// <summary>
-    /// Writes text to a file with automatic log rotation based on file size.
-    /// When the file exceeds a specified size, it is renamed with a timestamp suffix,
-    /// and a new log file is started.
+    /// Writes text to a file with automatic log rotation based on file size and/or a date interval
+    /// (daily, weekly, or monthly). When a rotation trigger is met, the current file is renamed with a
+    /// timestamp suffix and a new log file is started. When both modes are enabled, size rotation takes precedence.
     /// </summary>
     public class RotatingStreamWriter : IDisposable
     {
@@ -118,8 +118,9 @@ namespace Servy.Core.IO
             _timeProvider = timeProvider ?? (() => _useLocalTimeForRotation ? DateTime.Now : DateTime.UtcNow);
 
             var now = _timeProvider();
-            var lastWriteTime = useLocalTimeForRotation ? File.GetLastWriteTime(path) : File.GetLastWriteTimeUtc(path);
-            _lastRotationDate = File.Exists(path) ? lastWriteTime : now; // baseline for date rotation
+            _lastRotationDate = File.Exists(path)
+                ? (useLocalTimeForRotation ? File.GetLastWriteTime(path) : File.GetLastWriteTimeUtc(path))
+                : now; // baseline for date rotation
             _maxRotations = maxRotations;
         }
 
@@ -274,6 +275,8 @@ namespace Servy.Core.IO
                     return false;
 
                 case DateRotationType.Weekly:
+                    if (now.Date <= _lastRotationDate.Date) return false;   // backward/same-day clock: never rotate
+
                     var lastWeek = CultureInfo.InvariantCulture.Calendar.GetWeekOfYear(
                         _lastRotationDate, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
                     var thisWeek = CultureInfo.InvariantCulture.Calendar.GetWeekOfYear(
@@ -284,6 +287,7 @@ namespace Servy.Core.IO
                     return (now.Date - _lastRotationDate.Date).TotalDays >= 7 || thisWeek != lastWeek;
 
                 case DateRotationType.Monthly:
+                    if (now.Date <= _lastRotationDate.Date) return false;
                     return now.Month != _lastRotationDate.Month || now.Year != _lastRotationDate.Year;
 
                 default:

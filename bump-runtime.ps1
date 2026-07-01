@@ -1,41 +1,47 @@
 ﻿#requires -Version 5.0
 <#
 .SYNOPSIS
-Updates .NET runtime target version across scripts, AppConfig, and project files.
+    Updates .NET runtime target version across scripts, AppConfig, and project files.
 
 .DESCRIPTION
-This script recursively updates `netX.Y` target framework versions 
-inside:
-- PowerShell scripts (*.ps1)
-- Inno Setup files (*.iss)
-- .csproj project files
-- src/Servy.Core/Config/AppConfig.cs
-- .github/workflows/*.yml
-- global.json
+    This script recursively updates `netX.Y` target framework versions 
+    inside:
+    - PowerShell scripts (*.ps1)
+    - Inno Setup files (*.iss)
+    - .csproj project files
+    - src/Servy.Core/Config/AppConfig.cs
+    - .github/workflows/*.yml
+    - global.json
 
-Use -DryRun to preview changes without modifying anything.
+    Use -DryRun to preview changes without modifying anything.
 
 .PARAMETER Version
-The .NET runtime version (e.g. "10.0").
+    The .NET runtime version (e.g. "10.0").
+
+.PARAMETER SdkPatch
+    The SDK feature-band/patch component appended to the global.json version (default "100"), producing e.g. "10.0.100".
 
 .PARAMETER DryRun
-Shows what would change without writing to disk.
+    Shows what would change without writing to disk.
 
 .EXAMPLE
-./bump-runtime.ps1 -Version 10.0
+    ./bump-runtime.ps1 -Version 10.0
 
 .EXAMPLE
-./bump-runtime.ps1 10.0
+    ./bump-runtime.ps1 -Version 10.0 -SdkPatch 300
 
 .EXAMPLE
-./bump-runtime.ps1 -Version 10.0 -DryRun
-Shows all changes without modifying files.
+    ./bump-runtime.ps1 10.0
 
 .EXAMPLE
-./bump-runtime.ps1 10.0 -DryRun
+    ./bump-runtime.ps1 -Version 10.0 -DryRun
+    Shows all changes without modifying files.
+
+.EXAMPLE
+    ./bump-runtime.ps1 10.0 -DryRun
 
 .NOTES
-This script modifies files in-place unless -DryRun is used.
+    This script modifies files in-place unless -DryRun is used.
 #>
 
 [CmdletBinding()]
@@ -43,6 +49,7 @@ param(
     [Parameter(Mandatory = $true, Position = 0)]
     [ValidatePattern("^\d+\.\d+$")]
     [string]$Version,
+    [ValidatePattern("^\d+$")]
     [string]$SdkPatch = "100",
     [switch]$DryRun
 )
@@ -85,7 +92,8 @@ function Update-Files {
         [Parameter(Mandatory)] $Files,
         [Parameter(Mandatory)] [string]$Pattern,
         [Parameter(Mandatory)] [string]$Replacement,
-        [Parameter(Mandatory)] [bool]$DryRun
+        [Parameter(Mandatory)] [bool]$DryRun,
+        [switch]$ExpectMatch
     )
 
     foreach ($file in $Files) {
@@ -94,6 +102,9 @@ function Update-Files {
         
         if (-not (Test-Path $path)) {
             Write-Warning "Skipping missing file: $path"
+            if ($ExpectMatch) {
+                $script:HadFailure = $true
+            }
             continue
         }
 
@@ -117,6 +128,10 @@ function Update-Files {
                     [System.IO.File]::WriteAllText($path, $newContent, $encoding)
                     Write-Host "UPDATED ($($encoding.BodyName)): $path" -ForegroundColor Green
                 }
+            } elseif ($ExpectMatch) {
+                # A pattern missing condition on a targeted file is treated as an unrecoverable migration failure.
+                Write-Warning "No version patterns matching '$Pattern' were located in explicitly-targeted path: $path"
+                $script:HadFailure = $true
             }
         }
         catch {
@@ -136,38 +151,19 @@ $bulkFiles = Get-ChildItem -Path $baseDir -Recurse -Include *.ps1, *.iss, *.cspr
 Update-Files -Files $bulkFiles -Pattern $currentVersionRegex -Replacement $netVersion -DryRun:$DryRun
 
 # 2. Specific Config/Workflow updates (Safe Pathing & Broadened Workflows)
-$specificFiles = @(
-    (Join-Path $baseDir "src\Servy.Core\Config\AppConfig.cs")
-)
+$workflowFiles = @($(Join-Path $baseDir ".github\workflows\publish.yml"))
 
-# Defend against future workflow files by sweeping the entire .github/workflows directory
-$workflowsDir = Join-Path $baseDir ".github\workflows"
-if (Test-Path $workflowsDir) {
-    $workflowFiles = Get-ChildItem -Path $workflowsDir -Filter *.yml -ErrorAction SilentlyContinue
-    if ($workflowFiles) {
-        $specificFiles += $workflowFiles.FullName
-    }
-}
+# Explicit targets must match version patterns to proceed safely
+Update-Files -Files $workflowFiles -Pattern $currentVersionRegex -Replacement $netVersion -DryRun:$DryRun -ExpectMatch
 
-Update-Files -Files $specificFiles -Pattern $currentVersionRegex -Replacement $netVersion -DryRun:$DryRun
-
-# 3. GitHub Action specific update
-$actionFile = Join-Path $baseDir ".github\actions\setup-dotnet\action.yml"
-$actionPattern = "(default:\s*')\d+\.\d+(')"
-
-# Use ${1} to prevent the engine from thinking you want group #11
-$actionReplacement = "`${1}$Version`${2}"
-
-Update-Files -Files @($actionFile) -Pattern $actionPattern -Replacement $actionReplacement -DryRun:$DryRun
-
-# 4. Update global.json SDK version to match the new TFM major via regex to perfectly preserve original file formatting
+# 3. Update global.json SDK version to match the new TFM major via regex to perfectly preserve original file formatting
 $globalJsonFile = Join-Path $baseDir "global.json"
 if (Test-Path $globalJsonFile) {
     # Captures the JSON property context and ensures we do not cross boundaries or break numerical groupings
     $globalJsonPattern     = '("version"\s*:\s*")\d+\.\d+\.\d+'
     $globalJsonReplacement = "`${1}$Version.$SdkPatch"
     
-    Update-Files -Files @($globalJsonFile) -Pattern $globalJsonPattern -Replacement $globalJsonReplacement -DryRun:$DryRun
+    Update-Files -Files @($globalJsonFile) -Pattern $globalJsonPattern -Replacement $globalJsonReplacement -DryRun:$DryRun -ExpectMatch
 }
 
 # -----------------------------
@@ -176,9 +172,15 @@ if (Test-Path $globalJsonFile) {
 Write-Host "`n========================================="
 Write-Host "            SUMMARY"
 Write-Host "========================================="
-Write-Host "Files scanned:      $script:totalFilesScanned"
-Write-Host "Files modified:     $script:filesModified"
-Write-Host "Total replacements: $script:totalReplacements"
+if ($DryRun) {
+    Write-Host "Files scanned:                    $script:totalFilesScanned"
+    Write-Host "Files that would be modified:     $script:filesModified"
+    Write-Host "Replacements that would be made:  $script:totalReplacements"
+} else {
+    Write-Host "Files scanned:      $script:totalFilesScanned"
+    Write-Host "Files modified:     $script:filesModified"
+    Write-Host "Total replacements: $script:totalReplacements"
+}
 
 if ($script:HadFailure) {
     if ($DryRun) {

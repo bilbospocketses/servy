@@ -1,26 +1,23 @@
 ﻿using Servy.Core.Helpers;
-using Servy.Core.Logging;
 using System.Diagnostics;
 
 namespace Servy.Core.IntegrationTests.Helpers
 {
     [CollectionDefinition("ProcessHelperIntegrationTests", DisableParallelization = true)]
-    public class ProcessHelperIntegrationTestsCollection : ICollectionFixture<object>
+    public class ProcessHelperIntegrationTestsCollection
     {
         // Enforces strict sequential isolation across the execution suite
     }
 
     /// <summary>
     /// Integration tests for ProcessHelper. 
-    /// Verifies OS-level interactions including file system resolution, environment variable expansion, 
-    /// and native Windows process tree traversal.
+    /// Verifies ProcessHelper process-metric and process-tree aggregation behavior.
     /// </summary>
     [Collection("ProcessHelperIntegrationTests")]
     public class ProcessHelperIntegrationTests : IDisposable
     {
         private readonly ProcessHelper _sut;
         private readonly string _tempDirectory;
-        private readonly string _tempFile;
         private readonly List<Process> _spawnedProcesses;
 
         public ProcessHelperIntegrationTests()
@@ -31,12 +28,6 @@ namespace Servy.Core.IntegrationTests.Helpers
             // Setup real file system artifacts for path integration tests
             _tempDirectory = Path.Combine(Path.GetTempPath(), $"Servy_Test_{Guid.NewGuid()}");
             Directory.CreateDirectory(_tempDirectory);
-
-            _tempFile = Path.Combine(_tempDirectory, "test_target.txt");
-            File.WriteAllText(_tempFile, "Integration test artifact");
-
-            // Setup an environment variable specifically for testing expansion
-            Environment.SetEnvironmentVariable("SERVY_TEST_VAR", _tempDirectory);
         }
 
         #region Process Metrics Integration Tests
@@ -81,8 +72,15 @@ namespace Servy.Core.IntegrationTests.Helpers
         [Fact]
         public void GetProcessTreeMetrics_WithChildProcess_AggregatesRamSuccessfully()
         {
-            // Arrange: Use a longer-lived PowerShell command to ensure stability
-            var childProcessInfo = new ProcessStartInfo("powershell.exe", "-NoProfile -Command \"$data = New-Object byte[] 30MB; Start-Sleep -Seconds 5\"")
+            // Arrange
+            // Force the root process to spawn a distinct child process space using Start-Process.
+            // Both the root host and its child load memory allocations to provide a clear tree aggregation signal.
+            string inlineScript =
+                "$rootAlloc = New-Object byte[] 20MB; " +
+                "Start-Process powershell -ArgumentList '-NoProfile','-Command', '$childAlloc = New-Object byte[] 25MB; Start-Sleep -Seconds 10'; " +
+                "Start-Sleep -Seconds 10";
+
+            var childProcessInfo = new ProcessStartInfo("powershell.exe", $"-NoProfile -Command \"{inlineScript}\"")
             {
                 CreateNoWindow = true,
                 UseShellExecute = false,
@@ -93,27 +91,26 @@ namespace Servy.Core.IntegrationTests.Helpers
             Assert.NotNull(childProcess);
             _spawnedProcesses.Add(childProcess);
 
-            // 1. INCREASE STABILIZATION: PowerShell needs more than a few ms to 
-            // fully map its memory and release internal handles.
-            Thread.Sleep(1000);
+            // 1. HARDEN STABILIZATION TIMING:
+            // Allow time for the root process to initialize and execute its nested child payload.
+            Thread.Sleep(3000);
 
             int childPid = childProcess.Id;
 
-            // 2. CAPTURE SINGLE METRICS FIRST:
-            // This warms up the PID handle cache in the OS for this process.
-            var singleMetrics = _sut.GetProcessMetrics(childPid);
-
+            // 2. CAPTURE METRICS BACK-TO-BACK:
             // Act
+            var singleMetrics = _sut.GetProcessMetrics(childPid);
             var treeMetrics = _sut.GetProcessTreeMetrics(childPid);
-
-            // 3. LOGGING FOR DEBUGGING:
-            // This helps identify if GetProcessMetrics is returning 0 internally.
-            Logger.Info($"Single RAM: {singleMetrics.RamUsage}, Tree RAM: {treeMetrics.RamUsage}");
 
             // Assert
             Assert.True(singleMetrics.RamUsage > 0, "Root process RAM should be captured.");
-            Assert.True(treeMetrics.RamUsage >= singleMetrics.RamUsage,
-                $"Tree RAM ({treeMetrics.RamUsage}) must be >= Root RAM ({singleMetrics.RamUsage}).");
+            Assert.True(treeMetrics.RamUsage > 0, "Tree process RAM aggregation should be captured.");
+
+            // 4. ROBUST DELTA VALUATION:
+            // Verifies that tree metrics accurately sum memory across the nested worker processes.
+            // Tree memory must be noticeably larger than the isolated root process node's footprint.
+            Assert.True(treeMetrics.RamUsage > singleMetrics.RamUsage,
+                $"Process tree aggregation failed. Tree RAM ({treeMetrics.RamUsage} bytes) should be strictly greater than single root RAM ({singleMetrics.RamUsage} bytes).");
         }
 
         #endregion
@@ -125,7 +122,12 @@ namespace Servy.Core.IntegrationTests.Helpers
             {
                 if (!process.HasExited)
                 {
-                    try { process.Kill(); } catch { /* Ignore cleanup errors */ }
+                    try
+                    {
+                        // Kill the root process and ensure its nested descendants are cleaned up from the OS scheduler
+                        process.Kill();
+                    }
+                    catch { /* Ignore cleanup errors */ }
                 }
                 process.Dispose();
             }

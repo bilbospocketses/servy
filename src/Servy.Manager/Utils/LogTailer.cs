@@ -3,6 +3,7 @@ using Servy.Core.Logging;
 using Servy.Core.Native;
 using Servy.Manager.Models;
 using System.IO;
+using System.Text;
 using static Servy.Core.Native.NativeMethods;
 
 namespace Servy.Manager.Utils
@@ -25,11 +26,16 @@ namespace Servy.Manager.Utils
     /// </remarks>
     public class LogTailer : IDisposable
     {
-#if DEBUG || UNIT_TEST
-        // Allows tests to wait until the background loop is actually running
+        /// <summary>
+        /// Allows tests to wait until the background loop is actually running.
+        /// </summary>
         internal TaskCompletionSource<bool> LoopStartedSignal { get; private set; }
             = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-#endif
+
+        /// <summary>
+        /// Event hook triggered at the end of a polling loop iteration for synchronization profiling.
+        /// </summary>
+        internal event Action? OnLoopCompleted;
 
         /// <summary>
         /// Internal token source to ensure the tailing loop stops immediately upon disposal.
@@ -64,6 +70,8 @@ namespace Servy.Manager.Utils
         /// <returns>A Task representing the long-running polling operation.</returns>
         public async Task RunFromPosition(string? path, LogType type, long startPos, DateTime startCreated, CancellationToken token)
         {
+            if (Volatile.Read(ref _isDisposed) != 0) throw new ObjectDisposedException(nameof(LogTailer));
+
             if (string.IsNullOrEmpty(path)) return;
 
             using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, _disposeCts.Token))
@@ -74,6 +82,9 @@ namespace Servy.Manager.Utils
                 DateTime lastCreationTime = startCreated;
                 FILE_IDENTITY? knownIdentity = null;
                 int consecutiveFailures = 0;
+
+                // Track flush-torn string segments across polling boundaries
+                string carryOverFragment = string.Empty;
 
                 while (!linkedToken.IsCancellationRequested)
                 {
@@ -116,6 +127,7 @@ namespace Servy.Manager.Utils
                                 {
                                     lastPosition = 0;
                                     lastCreationTime = info.CreationTimeUtc;
+                                    carryOverFragment = string.Empty; // Wipe state context on rotation
                                     Logger.Debug("[LogTailer] Rotation detected before first open (Metadata fallback).");
                                 }
                             }
@@ -130,6 +142,7 @@ namespace Servy.Manager.Utils
                                 {
                                     lastPosition = 0;
                                     lastCreationTime = info.CreationTimeUtc;
+                                    carryOverFragment = string.Empty; // Wipe state context on rotation
                                     Logger.Debug("[LogTailer] Rotation or truncation detected on reopen.");
                                 }
                             }
@@ -138,40 +151,79 @@ namespace Servy.Manager.Utils
                             fs.Seek(lastPosition, SeekOrigin.Begin);
 
                             // Construct the reader specifying a fallback default encoding for files lacking BOM headers
-                            using (StreamReader reader = new StreamReader(fs, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: true))
+                            using (StreamReader reader = new StreamReader(fs, Encoding.UTF8, detectEncodingFromByteOrderMarks: true))
                             {
                                 try
                                 {
                                     while (!linkedToken.IsCancellationRequested)
                                     {
-#if DEBUG || UNIT_TEST
                                         LoopStartedSignal.TrySetResult(true);
-#endif
 
                                         List<LogLine> batch = new List<LogLine>();
                                         string? line;
+                                        string? lastSuccessfullyReadLine = null;
+
+                                        // Capture our starting point position for this polling execution loop pass block
+                                        long streamStartOffset = fs.Position;
 
                                         while ((line = await reader.ReadLineAsync(linkedToken)) != null)
                                         {
-                                            // ROBUSTNESS: A successful partial or full line processing loop verifies system liveness.
-                                            // Reset our consecutive unhandled error mitigation states immediately.
                                             consecutiveFailures = 0;
 
+                                            // If the previous pass held back an unterminated segment, prepend it now
+                                            if (!string.IsNullOrEmpty(carryOverFragment))
+                                            {
+                                                line = carryOverFragment + line;
+                                                carryOverFragment = string.Empty;
+                                            }
+
+                                            lastSuccessfullyReadLine = line;
                                             batch.Add(new LogLine(line, type));
+
                                             if (batch.Count >= AppConfig.LogTailerBatchFlushThreshold)
                                             {
                                                 OnNewLines?.Invoke(batch);
-                                                // Hand ownership to the async consumer and allocate a fresh buffer
-                                                // to prevent cross-thread collection modification or data loss.
                                                 batch = new List<LogLine>(AppConfig.LogTailerBatchFlushThreshold);
                                             }
                                         }
 
-                                        if (batch.Count > 0) OnNewLines?.Invoke(batch);
+                                        // --- EOF Reached. Verify File Integrity / Flush-Torn Status ---
+                                        // Abandon unstable internal loop stream position delta arithmetic. 
+                                        // Instead, evaluate the physical trailing byte on disk deterministically if data was processed.
+                                        if (lastSuccessfullyReadLine != null && fs.Length > 0)
+                                        {
+                                            fs.Seek(-1, SeekOrigin.End);
+                                            int lastByte = fs.ReadByte();
 
-                                        // --- EOF Reached. Verify File Integrity / Rotation ---
-                                        // Since the StreamReader buffer is now fully drained, fs.Position is completely accurate.
-                                        lastPosition = fs.Position;
+                                            if (lastByte != (byte)'\n')
+                                            {
+                                                // The file does not terminate with a newline. The writer process was caught
+                                                // mid-flush. Pop the untracked line out of the batch to preserve boundary isolation.
+                                                if (batch.Count > 0)
+                                                {
+                                                    batch.RemoveAt(batch.Count - 1);
+                                                }
+
+                                                carryOverFragment = lastSuccessfullyReadLine;
+
+                                                // Roll back our persistent file offset indicator pointer to the beginning of this poll block pass.
+                                                // This ensures the next polling loop pass re-scans and captures the fully completed line cleanly.
+                                                lastPosition = streamStartOffset;
+                                            }
+                                            else
+                                            {
+                                                // Trailing character is a valid newline. Clear tracking fragment strings completely.
+                                                carryOverFragment = string.Empty;
+                                                lastPosition = fs.Position;
+                                            }
+                                        }
+                                        else if (string.IsNullOrEmpty(carryOverFragment))
+                                        {
+                                            // Secure baseline EOF tracking position advance
+                                            lastPosition = fs.Position;
+                                        }
+
+                                        if (batch.Count > 0) OnNewLines?.Invoke(batch);
 
                                         info.Refresh();
                                         bool rotated = false;
@@ -219,15 +271,16 @@ namespace Servy.Manager.Utils
 
                                         // We successfully reached the EOF polling point without crashing.
                                         consecutiveFailures = 0;
+                                        // Signal to the test framework that the current stream buffer is drained 
+                                        // and the loop iteration is completing its pass.
+                                        OnLoopCompleted?.Invoke();
                                         await Task.Delay(AppConfig.LogTailerEofPollIntervalMs, linkedToken);
                                     }
                                 }
                                 finally
                                 {
-#if DEBUG || UNIT_TEST
                                     // Reset the signal if the task ends, ensuring subsequent runs (if any) can re-signal
                                     LoopStartedSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-#endif
                                 }
                             }
                         }
@@ -237,6 +290,10 @@ namespace Servy.Manager.Utils
                     {
                         consecutiveFailures++;
 
+                        // CRITICAL: Erase any mid-flush carry over memory state because the outer loop
+                        // is re-opening the file and rescanning parameters cleanly from the disk layout context.
+                        carryOverFragment = string.Empty;
+
                         // CIRCUIT BREAKER: Suppress continuous log spam for recurring permanent failures.
                         if (consecutiveFailures == 1 || consecutiveFailures % AppConfig.LogTailerErrorLogThrottlingInterval == 0)
                         {
@@ -245,7 +302,8 @@ namespace Servy.Manager.Utils
 
                         // LINEAR BACKOFF: Progressively scale recovery wait by attempt number, capped at MaxDelay.
                         int delay = Math.Min(AppConfig.LogTailerMaxUnhandledErrorRecoveryDelayMs, AppConfig.LogTailerUnhandledErrorRecoveryDelayMs * consecutiveFailures);
-                        await Task.Delay(delay, linkedToken);
+                        try { await Task.Delay(delay, linkedToken); }
+                        catch (OperationCanceledException) { break; }
                     }
                 }
             }
@@ -254,11 +312,12 @@ namespace Servy.Manager.Utils
         /// <summary>
         /// Just loads the history and returns the state without starting the tailing loop.
         /// </summary>
-        public async Task<HistoryResult?> GetHistoryAsync(string? path, LogType type, int maxLines)
+        public async Task<HistoryResult> GetHistoryAsync(string? path, LogType type, int maxLines, CancellationToken cancellationToken = default)
         {
+            if (Volatile.Read(ref _isDisposed) != 0) throw new ObjectDisposedException(nameof(LogTailer));
             long pos = 0;
             DateTime created = DateTime.MinValue;
-            var lines = await Task.Run(() => LoadHistory(path, type, maxLines, out pos, out created));
+            var lines = await Task.Run(() => LoadHistory(path, type, maxLines, out pos, out created), cancellationToken);
             return new HistoryResult(lines, pos, created);
         }
 
@@ -309,7 +368,7 @@ namespace Servy.Manager.Utils
                     int count = (lastByte == (byte)'\n') ? 0 : 1;
 
                     long pos = fs.Length;
-                    byte[] buffer = new byte[4096];
+                    byte[] buffer = new byte[AppConfig.LogTailerHistoryScanBufferSize];
 
                     // Backwards scan for newline characters to locate the start of the last 'maxLines'
                     while (pos > 0 && count <= maxLines)
@@ -330,7 +389,7 @@ namespace Servy.Manager.Utils
 
                     // Read forward from the discovered position
                     fs.Seek(pos, SeekOrigin.Begin);
-                    using (StreamReader sr = new StreamReader(fs))
+                    using (StreamReader sr = new StreamReader(fs, Encoding.UTF8, detectEncodingFromByteOrderMarks: true))
                     {
                         string? line;
                         var tempLines = new List<string>();
@@ -359,15 +418,10 @@ namespace Servy.Manager.Utils
                     }
                 }
             }
-            catch (FileNotFoundException)
-            {
-                // Handle the race condition where file existed a moment ago but is gone now
-                return lines;
-            }
-            catch (DirectoryNotFoundException)
-            {
-                return lines;
-            }
+            catch (FileNotFoundException) { return lines; }
+            catch (DirectoryNotFoundException) { return lines; }
+            catch (IOException ex) { Logger.Debug($"History load IO error for {path}: {ex.Message}"); return lines; }
+            catch (UnauthorizedAccessException ex) { Logger.Debug($"History load access denied for {path}: {ex.Message}"); return lines; }
 
             return lines;
         }

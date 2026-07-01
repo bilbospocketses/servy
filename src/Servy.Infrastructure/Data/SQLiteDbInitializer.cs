@@ -2,6 +2,7 @@
 using Servy.Core.DTOs;
 using Servy.Core.Logging;
 using System.Data.Common;
+using System.Data.SQLite;
 using System.Reflection;
 
 namespace Servy.Infrastructure.Data
@@ -45,6 +46,45 @@ namespace Servy.Infrastructure.Data
         /// <param name="connection">An open database connection to execute commands on.</param>
         public static void Initialize(DbConnection connection)
         {
+            // Register the collation sequence BEFORE any DDL or PRAGMA is sent to the SQLite engine.
+            // This prevents immediate engine parsing errors if the index already exists on disk from a prior application run.
+            SQLiteFunction.RegisterFunction(typeof(UnicodeNoCaseCollation));
+
+            // --- INTENTIONAL ROBUSTNESS SAFETY CHECK ---
+            // Scan and report legacy whitespace-padded rows on every initialization pass instead of dropping them.
+            // Because unique indexes like 'idx_services_name_unique' permit 'foo' and ' foo ' to coexist under COLLATE UNICODE_NOCASE,
+            // lookups that automatically trim keys first will hit the clean row. This satisfies the fallback evaluation predicate 
+            // of the read path, which causes the verbatim secondary check to never fire-leaving the padded legacy variant masked and unreachable.
+            try
+            {
+                var legacyCollisions = connection.Query($@"
+                    SELECT a.Id AS ZombieId, a.Name AS ZombieName, b.Id AS TwinId, b.Name AS TwinName
+                    FROM {SqlConstants.ServicesTableName} a
+                    JOIN {SqlConstants.ServicesTableName} b ON TRIM(a.Name) = b.Name COLLATE UNICODE_NOCASE
+                    WHERE a.Name <> TRIM(a.Name);").ToList();
+
+                foreach (var collision in legacyCollisions)
+                {
+                    Logger.Warn($"CRITICAL DATA LIFECYCLE ANOMALY: Legacy whitespace-padded service record '{collision.ZombieName}' (ID {collision.ZombieId}) " +
+                                $"coexists with clean twin '{collision.TwinName}' (ID {collision.TwinId}). The padded row is preserved but masked, and remains unreachable by name-based actions.");
+                }
+            }
+            catch (Exception ex)
+            {
+                // Explicitly check the master schema to distinguish between a benign first-boot 
+                // initialization and a genuine runtime query failure.
+                if (!TableExists(connection, SqlConstants.ServicesTableName, transaction: null))
+                {
+                    Logger.Debug($"Defensive validation padding check skipped because the base {SqlConstants.ServicesTableName} table layout has not been instantiated yet.", ex);
+                }
+                else
+                {
+                    // Escalated to Warn because the table exists, meaning an infrastructure anomaly 
+                    // (e.g., missing UNICODE_NOCASE collation, DB lock, corrupt file) silently disabled the detector.
+                    Logger.Warn($"Legacy whitespace-padding anomaly scan failed to execute against the active {SqlConstants.ServicesTableName} table; zombie rows may go undetected this boot.", ex);
+                }
+            }
+
             // Disable foreign keys temporarily for the duration of the migration process.
             // SQLite requires this to be set OUTSIDE of an active transaction for table-rebuilds (v4) to work.
             connection.Execute("PRAGMA foreign_keys=OFF;");
@@ -72,7 +112,7 @@ namespace Servy.Infrastructure.Data
                         int currentVersion = GetSchemaVersion(connection, transaction);
 
                         // 4. Backward Compatibility: Handle unversioned legacy databases
-                        if (currentVersion == 0 && TableExists(connection, "Services", transaction))
+                        if (currentVersion == 0 && TableExists(connection, SqlConstants.ServicesTableName, transaction))
                         {
                             UpgradeLegacyDatabaseToVersion1(connection, transaction);
                             UpdateSchemaVersion(connection, 1, transaction);
@@ -119,8 +159,16 @@ namespace Servy.Infrastructure.Data
                             currentVersion = 5;
                         }
 
+                        // Version 6 Migration to upgrade the unique index to a Unicode-aware case-insensitive collation (COLLATE UNICODE_NOCASE)
+                        if (currentVersion < 6)
+                        {
+                            ApplyVersion6(connection, transaction);
+                            UpdateSchemaVersion(connection, 6, transaction);
+                            currentVersion = 6;
+                        }
+
                         // --- FUTURE MIGRATIONS GO HERE ---
-                        // if (currentVersion < 6) { ... }
+                        // if (currentVersion < 7) { ... }
 
                         // 6. Reconciliation safety net
                         // Ensures that any columns added to SqlConstants but missed in migrations are applied.
@@ -156,14 +204,16 @@ namespace Servy.Infrastructure.Data
         private static void ReconcileSchema(DbConnection connection, int currentVersion, DbTransaction transaction)
         {
             // Fetch full column definitions (name and type) from PRAGMA
-            var tableInfo = connection.Query("PRAGMA table_info(Services);", transaction: transaction).ToList();
+            var tableInfo = connection.Query($"PRAGMA table_info({SqlConstants.ServicesTableName});", transaction: transaction).ToList();
 
+            // DRY PASS: Derive hash set from raw metadata rows directly to save an extra query round-trip
             var existingColumns = new HashSet<string>(
                 tableInfo.Select(row => (string)row.name),
                 StringComparer.OrdinalIgnoreCase);
 
-            // Assume GetExpectedColumns returns StandardColumns. 
-            // We explicitly add primary/special keys to our expected set to prevent them from being flagged as orphans.
+            // GetExpectedColumns returns every column in SqlConstants.InsertColumns
+            // (Name + StandardColumns + PreviousStopTimeout). Only the Id primary key
+            // is absent, so add it explicitly to avoid flagging it as an orphan.
             var expectedColumns = new HashSet<string>(GetExpectedColumns(), StringComparer.OrdinalIgnoreCase);
             var coreKeys = new[] { "Id" };
             foreach (var key in coreKeys)
@@ -184,14 +234,14 @@ namespace Servy.Infrastructure.Data
                     string baseDefinition = EnsureAlterableDefinition(GetSqlType(col));
 
                     // Core keys shouldn't hit this path dynamically, but we use GetSqlType for standard columns
-                    connection.Execute($"ALTER TABLE Services ADD COLUMN {col} {baseDefinition};", transaction: transaction);
+                    connection.Execute($"ALTER TABLE {SqlConstants.ServicesTableName} ADD COLUMN {col} {baseDefinition};", transaction: transaction);
                     Logger.Info($"Self-healed column: {col} with schema context '{baseDefinition}'");
                 }
             }
 
             // 2. Detect Orphaned Columns (Present in DB, but not in SqlConstants)
             var orphans = existingColumns
-                .Except(expectedColumns, StringComparer.OrdinalIgnoreCase)
+                .MakeOrphanFilter(expectedColumns)
                 .ToList();
 
             if (orphans.Count > 0)
@@ -264,7 +314,7 @@ namespace Servy.Infrastructure.Data
         /// <param name="tableName">The exact name of the table to look for.</param>
         /// <param name="transaction">The active atomic transaction.</param>
         /// <returns><c>true</c> if the table exists; otherwise, <c>false</c>.</returns>
-        private static bool TableExists(DbConnection connection, string tableName, DbTransaction transaction)
+        private static bool TableExists(DbConnection connection, string tableName, DbTransaction? transaction)
         {
             var result = connection.QueryFirstOrDefault<int>(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name=@TableName;",
@@ -283,6 +333,17 @@ namespace Servy.Infrastructure.Data
             return SqlConstants.InsertColumns
                 .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
                 .Select(c => c.Trim());
+        }
+
+        /// <summary>
+        /// Queries the SQLite engine schema to map and return all current structural column fields for the Services table.
+        /// </summary>
+        private static HashSet<string> GetExistingColumnNames(DbConnection connection, DbTransaction transaction)
+        {
+            return new HashSet<string>(
+                connection.Query($"PRAGMA table_info({SqlConstants.ServicesTableName});", transaction: transaction)
+                          .Select(row => (string)row.name),
+                StringComparer.OrdinalIgnoreCase);
         }
 
         #region Migration Logic
@@ -307,12 +368,12 @@ namespace Servy.Infrastructure.Data
                 columnDefinitions.Add($"{col} {GetSqlType(col)}");
             }
 
-            // Added IF NOT EXISTS to prevent concurrent racer crashes.
-            var createTableSql = $"CREATE TABLE IF NOT EXISTS Services (\n    {string.Join(",\n    ", columnDefinitions)}\n);";
+            // IF NOT EXISTS to prevent concurrent racer crashes.
+            var createTableSql = $"CREATE TABLE IF NOT EXISTS {SqlConstants.ServicesTableName} (\n    {string.Join(",\n    ", columnDefinitions)}\n);";
             connection.Execute(createTableSql, transaction: transaction);
 
             // Create the UNIQUE functional index (IF NOT EXISTS protects against concurrent creations)
-            var createIndexSql = "CREATE UNIQUE INDEX IF NOT EXISTS idx_services_name_lower ON Services(LOWER(Name));";
+            var createIndexSql = $"CREATE UNIQUE INDEX IF NOT EXISTS idx_services_name_lower ON {SqlConstants.ServicesTableName}(LOWER(Name));";
             connection.Execute(createIndexSql, transaction: transaction);
         }
 
@@ -325,7 +386,7 @@ namespace Servy.Infrastructure.Data
         private static void UpgradeLegacyDatabaseToVersion1(DbConnection connection, DbTransaction transaction)
         {
             // 1. Fix the legacy non-unique index issue
-            var indices = connection.Query("PRAGMA index_list('Services');", transaction: transaction);
+            var indices = connection.Query($"PRAGMA index_list('{SqlConstants.ServicesTableName}');", transaction: transaction);
             bool needsUpgrade = indices.Any(i =>
                 Convert.ToString(i.name) == "idx_services_name_lower" && Convert.ToInt64(i.unique) == 0);
 
@@ -338,9 +399,9 @@ namespace Servy.Infrastructure.Data
             // --- ROBUSTNESS: Defensively resolve duplicate LOWER(Name) groups before enforcing UNIQUE constraints ---
             // This prevents migration failure crashes (SQLite Error 19: UNIQUE constraint failed) when upgrading legacy DBs.
             // Using MIN(Id) ensures deterministic selection of the oldest record, avoiding GROUP_CONCAT non-determinism.
-            var duplicates = connection.Query(@"
+            var duplicates = connection.Query($@"
                 SELECT LOWER(Name) AS LowerName, COUNT(*) AS Count, MIN(Id) AS KeepId
-                FROM Services
+                FROM {SqlConstants.ServicesTableName}
                 GROUP BY LOWER(Name)
                 HAVING COUNT(*) > 1;", transaction: transaction).ToList();
 
@@ -357,26 +418,23 @@ namespace Servy.Infrastructure.Data
 
                     // Prune the redundant records within the transaction scope using parameterized queries
                     connection.Execute(
-                        "DELETE FROM Services WHERE LOWER(Name) = @LowerName AND Id <> @KeepId;",
+                        $"DELETE FROM {SqlConstants.ServicesTableName} WHERE LOWER(Name) = @LowerName AND Id <> @KeepId;",
                         new { LowerName = lowerName, KeepId = keepId },
                         transaction: transaction);
                 }
             }
             // --------------------------------------------------------------------------------------------------------
 
-            connection.Execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_services_name_lower ON Services(LOWER(Name));", transaction: transaction);
+            connection.Execute($"CREATE UNIQUE INDEX IF NOT EXISTS idx_services_name_lower ON {SqlConstants.ServicesTableName}(LOWER(Name));", transaction: transaction);
 
-            var existingColumns = new HashSet<string>(
-                connection.Query("PRAGMA table_info(Services);", transaction: transaction)
-                          .Select(row => (string)row.name),
-                StringComparer.OrdinalIgnoreCase
-            );
+            // DRY PASS: Utilize centralized factory query engine helper
+            var existingColumns = GetExistingColumnNames(connection, transaction);
 
             // --- Intercept ambiguous legacy column and rename before dynamic column mapping ---
             if (existingColumns.Contains("EnableRotation") && !existingColumns.Contains("EnableSizeRotation"))
             {
                 Logger.Info("Migrating legacy database: Renaming 'EnableRotation' to 'EnableSizeRotation'.");
-                connection.Execute("ALTER TABLE Services RENAME COLUMN EnableRotation TO EnableSizeRotation;", transaction: transaction);
+                connection.Execute($"ALTER TABLE {SqlConstants.ServicesTableName} RENAME COLUMN EnableRotation TO EnableSizeRotation;", transaction: transaction);
                 existingColumns.Remove("EnableRotation");
                 existingColumns.Add("EnableSizeRotation");
             }
@@ -388,11 +446,11 @@ namespace Servy.Infrastructure.Data
 
             foreach (var col in missingColumns)
             {
-                Logger.Info($"Migrating database: Adding column '{col}' to 'Services' table.");
+                Logger.Info($"Migrating database: Adding column '{col}' to '{SqlConstants.ServicesTableName}' table.");
 
                 // ROBUSTNESS: Normalize the DDL definition to ensure backward compatibility for legacy non-empty databases
                 string safeType = EnsureAlterableDefinition(GetSqlType(col));
-                connection.Execute($"ALTER TABLE Services ADD COLUMN {col} {safeType};", transaction: transaction);
+                connection.Execute($"ALTER TABLE {SqlConstants.ServicesTableName} ADD COLUMN {col} {safeType};", transaction: transaction);
             }
 
             Logger.Info("Legacy database successfully migrated to Version 1.");
@@ -418,7 +476,7 @@ namespace Servy.Infrastructure.Data
         /// </summary>
         private static void ApplyVersion4(DbConnection connection, DbTransaction transaction)
         {
-            Logger.Info("Migrating database to Version 4: Rebuilding 'Services' table to drop strict NOT NULL constraints.");
+            Logger.Info($"Migrating database to Version 4: Rebuilding '{SqlConstants.ServicesTableName}' table to drop strict NOT NULL constraints.");
 
             var expectedColumns = GetExpectedColumns().ToList();
             var columnDefinitions = new List<string>
@@ -435,14 +493,8 @@ namespace Servy.Infrastructure.Data
             var createTableSql = $"CREATE TABLE IF NOT EXISTS Services_v4 (\n    {string.Join(",\n    ", columnDefinitions)}\n);";
             connection.Execute(createTableSql, transaction: transaction);
 
-            // --- Extract only the columns that actually exist in the old table ---
-            // Because 'expectedColumns' contains future columns (like v5's RecoveryOnCleanExit),
-            // selecting them from the old table will throw a "no such column" SQL logic error.
-            var existingColumns = new HashSet<string>(
-                connection.Query("PRAGMA table_info(Services);", transaction: transaction)
-                          .Select(row => (string)row.name),
-                StringComparer.OrdinalIgnoreCase
-            );
+            // --- Extract only the columns that actually exist in the old table using unified discovery helper ---
+            var existingColumns = GetExistingColumnNames(connection, transaction);
 
             var orphansBeforeRebuild = existingColumns
                 .Where(c => !expectedColumns.Contains(c, StringComparer.OrdinalIgnoreCase) && !"Id".Equals(c, StringComparison.OrdinalIgnoreCase))
@@ -450,26 +502,23 @@ namespace Servy.Infrastructure.Data
 
             if (orphansBeforeRebuild.Count > 0)
             {
-                // Stash the orphan column values in a side table inside the same transaction
-                // so the operator can recover the data even though the live schema no longer references it.
-                // Added 'IF NOT EXISTS' to ensure structural idempotency if migrations are re-evaluated.
                 var orphanList = string.Join(", ", orphansBeforeRebuild);
                 var idList = string.Join(", ", new[] { "Id" }.Concat(orphansBeforeRebuild));
 
                 connection.Execute(
-                    $"CREATE TABLE IF NOT EXISTS Services_orphans_v4 AS SELECT {idList} FROM Services;",
+                    $"CREATE TABLE IF NOT EXISTS Services_orphans_v4 AS SELECT {idList} FROM {SqlConstants.ServicesTableName};",
                     transaction: transaction);
 
                 Logger.Warn($"ApplyVersion4: orphan column(s) '{orphanList}' were preserved in 'Services_orphans_v4' for manual recovery. Drop that table once you have verified the data is no longer needed.");
             }
 
-            // Snapshot existing dependent objects (indexes, triggers, views) before dropping the table.
-            // Exclude 'idx_services_name_lower' since it is explicitly recreated down below.
-            // Automatically skips system auto-indexes where SQL is NULL.
+            // Snapshot dependent indexes and triggers before dropping the table.
+            // (Views referencing Services survive DROP TABLE and re-bind by name after the rename,
+            //  so they need no snapshot; sqlite_master tbl_name never links views to base tables.)
             var dependents = connection.Query<(string Type, string Name, string Sql)>(
-                @"SELECT type, name, sql FROM sqlite_master 
-                  WHERE tbl_name = 'Services' 
-                    AND type IN ('index', 'trigger', 'view') 
+                $@"SELECT type, name, sql FROM sqlite_master 
+                  WHERE tbl_name = '{SqlConstants.ServicesTableName}' 
+                    AND type IN ('index', 'trigger') 
                     AND sql IS NOT NULL 
                     AND name <> 'idx_services_name_lower';",
                 transaction: transaction).ToList();
@@ -480,17 +529,17 @@ namespace Servy.Infrastructure.Data
             string columnList = string.Join(", ", columnsToCopy);
             // --------------------------------------------------------------------------
 
-            string copyDataSql = $"INSERT INTO Services_v4 ({columnList}) SELECT {columnList} FROM Services;";
+            string copyDataSql = $"INSERT INTO Services_v4 ({columnList}) SELECT {columnList} FROM {SqlConstants.ServicesTableName};";
             connection.Execute(copyDataSql, transaction: transaction);
 
             // Swap the tables
-            connection.Execute("DROP TABLE IF EXISTS Services;", transaction: transaction);
-            connection.Execute("ALTER TABLE Services_v4 RENAME TO Services;", transaction: transaction);
+            connection.Execute($"DROP TABLE IF EXISTS {SqlConstants.ServicesTableName};", transaction: transaction);
+            connection.Execute($"ALTER TABLE Services_v4 RENAME TO {SqlConstants.ServicesTableName};", transaction: transaction);
 
-            // Re-create the functional unique index because SQLite drops indexes when the parent table is dropped
-            connection.Execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_services_name_lower ON Services(LOWER(Name));", transaction: transaction);
+            // --------------------------------------------------------------------------
+            connection.Execute($"CREATE UNIQUE INDEX IF NOT EXISTS idx_services_name_lower ON {SqlConstants.ServicesTableName}(LOWER(Name));", transaction: transaction);
 
-            // Re-create all snapshot dependent indexes, triggers, and views
+            // Re-create all snapshot dependent indexes and triggers
             foreach (var dependent in dependents)
             {
                 try
@@ -514,6 +563,52 @@ namespace Servy.Infrastructure.Data
         /// </summary>
         private static void ApplyVersion5(DbConnection connection, DbTransaction transaction) => AddColumnIfMissing(connection, transaction, 5, "RecoveryOnCleanExit");
 
+        /// <summary>
+        /// Applies the Version 6 schema migration, dropping the legacy functional LOWER unique index
+        /// and creating an explicit collation index (Name COLLATE UNICODE_NOCASE). This aligns the physical index
+        /// with the query engine's case-insensitive filters to optimize lookup execution plans while safely handling global charsets.
+        /// </summary>
+        /// <remarks>
+        /// Note: The custom registered UNICODE_NOCASE collation handles wide Unicode characters completely.
+        /// </remarks>
+        /// <param name="connection">The active database connection.</param>
+        /// <param name="transaction">The active atomic transaction.</param>
+        private static void ApplyVersion6(DbConnection connection, DbTransaction transaction)
+        {
+            Logger.Info("Migrating database to Version 6: Aligning unique index standard with native case-insensitive query collation (UNICODE_NOCASE).");
+
+            // Purge legacy functional identifiers and clean up standard unique indexes to transition cleanly to the Unicode collation format.
+            connection.Execute("DROP INDEX IF EXISTS idx_services_name_lower;", transaction: transaction);
+            connection.Execute("DROP INDEX IF EXISTS idx_services_name_unique;", transaction: transaction);
+
+            // Defensively purge any conflicting full-range Unicode case duplicate records that might cause conflicts during index recreation
+            var duplicates = connection.Query($@"
+                SELECT Name, COUNT(*) AS Count, MIN(Id) AS KeepId
+                FROM {SqlConstants.ServicesTableName}
+                GROUP BY Name COLLATE UNICODE_NOCASE
+                HAVING COUNT(*) > 1;", transaction: transaction).ToList();
+
+            if (duplicates.Count > 0)
+            {
+                Logger.Warn($"Version 6 Remediation: Found {duplicates.Count} duplicate casing records. Resolving via oldest instance retention tracking.");
+
+                foreach (var dup in duplicates)
+                {
+                    string serviceName = dup.Name;
+                    long keepId = Convert.ToInt64(dup.KeepId);
+
+                    connection.Execute(
+                        $"DELETE FROM {SqlConstants.ServicesTableName} WHERE Name = @Name COLLATE UNICODE_NOCASE AND Id <> @KeepId;",
+                        new { Name = serviceName, KeepId = keepId },
+                        transaction: transaction);
+                }
+            }
+
+            // Materialize the index using custom global query collation rules under a precise, maintainable identifier.
+            connection.Execute($"CREATE UNIQUE INDEX IF NOT EXISTS idx_services_name_unique ON {SqlConstants.ServicesTableName}(Name COLLATE UNICODE_NOCASE);", transaction: transaction);
+            Logger.Info("Database successfully migrated to Version 6.");
+        }
+
         #endregion
 
         #region Migration Helpers
@@ -523,16 +618,15 @@ namespace Servy.Infrastructure.Data
         /// </summary>
         private static void AddColumnIfMissing(DbConnection conn, DbTransaction tx, int version, string columnName)
         {
-            var existing = new HashSet<string>(
-                conn.Query("PRAGMA table_info(Services);", transaction: tx).Select(r => (string)r.name),
-                StringComparer.OrdinalIgnoreCase);
+            // DRY PASS: Utilize centralized factory query engine helper
+            var existing = GetExistingColumnNames(conn, tx);
 
             if (!existing.Contains(columnName))
             {
                 // ROBUSTNESS: Ensure type-safe defaults are applied defensively via the helper
                 var sqlType = EnsureAlterableDefinition(GetSqlType(columnName));   // SSoT via [SqlColumn]
                 Logger.Info($"Migrating database to Version {version}: Adding '{columnName}' column.");
-                conn.Execute($"ALTER TABLE Services ADD COLUMN {columnName} {sqlType};", transaction: tx);
+                conn.Execute($"ALTER TABLE {SqlConstants.ServicesTableName} ADD COLUMN {columnName} {sqlType};", transaction: tx);
                 Logger.Info($"Database successfully migrated to Version {version}.");
             }
             else
@@ -546,14 +640,13 @@ namespace Servy.Infrastructure.Data
         /// </summary>
         private static void RenameColumnIfExists(DbConnection conn, DbTransaction tx, int version, string oldName, string newName)
         {
-            var existing = new HashSet<string>(
-                conn.Query("PRAGMA table_info(Services);", transaction: tx).Select(r => (string)r.name),
-                StringComparer.OrdinalIgnoreCase);
+            // DRY PASS: Utilize centralized factory query engine helper
+            var existing = GetExistingColumnNames(conn, tx);
 
             if (existing.Contains(oldName) && !existing.Contains(newName))
             {
                 Logger.Info($"Migrating database to Version {version}: Renaming '{oldName}' to '{newName}'.");
-                conn.Execute($"ALTER TABLE Services RENAME COLUMN {oldName} TO {newName};", transaction: tx);
+                conn.Execute($"ALTER TABLE {SqlConstants.ServicesTableName} RENAME COLUMN {oldName} TO {newName};", transaction: tx);
                 Logger.Info($"Database successfully migrated to Version {version}.");
             }
             else
@@ -564,7 +657,7 @@ namespace Servy.Infrastructure.Data
                 }
                 else
                 {
-                    Logger.Info($"Migration to Version {version} skipped: Source column '{oldName}' was not found in the 'Services' table layout.");
+                    Logger.Info($"Migration to Version {version} skipped: Source column '{oldName}' was not found in the '{SqlConstants.ServicesTableName}' table layout.");
                 }
             }
         }
@@ -610,6 +703,14 @@ namespace Servy.Infrastructure.Data
             }
 
             return definition;
+        }
+
+        /// <summary>
+        /// Extension-like helper logic utilized to filter collection groups cleanly.
+        /// </summary>
+        private static IEnumerable<string> MakeOrphanFilter(this IEnumerable<string> source, HashSet<string> references)
+        {
+            return source.Except(references, StringComparer.OrdinalIgnoreCase);
         }
     }
 }

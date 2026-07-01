@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using Servy.Core.Config;
+using System.Diagnostics;
 
 namespace Servy.Service.ProcessManagement
 {
@@ -53,22 +54,32 @@ namespace Servy.Service.ProcessManagement
         DateTime StartTime { get; }
 
         /// <summary>
-        /// Standard output stream of the process.
+        /// Gets the standard output stream of the associated process.
         /// </summary>
         StreamReader StandardOutput { get; }
 
         /// <summary>
-        /// Standard error stream of the process.
+        /// Gets the standard error stream of the associated process.
         /// </summary>
         StreamReader StandardError { get; }
 
         /// <summary>
-        /// Process start information, including the executable path, arguments, and other settings.
+        /// Gets the window handle of the main window for the associated process.
+        /// </summary>
+        IntPtr MainWindowHandle { get; }
+
+        /// <summary>
+        /// Gets or sets the overall priority category for the associated process.
+        /// </summary>
+        ProcessPriorityClass PriorityClass { get; set; }
+
+        /// <summary>
+        /// Gets the process start information, including the executable path, arguments, and other settings.
         /// </summary>
         ProcessStartInfo StartInfo { get; }
 
         /// <summary>
-        /// Underlying Process.
+        /// Gets the underlying <see cref="Process"/> instance.
         /// </summary>
         Process UnderlyingProcess { get; }
 
@@ -98,8 +109,9 @@ namespace Servy.Service.ProcessManagement
         /// the timeout period; otherwise, <c>false</c>.
         /// </returns>
         /// <remarks>
-        /// This method polls the process state every 500 milliseconds until the timeout
-        /// is reached. If the process exits during this time, the method returns <c>false</c>.
+        /// This method polls the process state at the interval configured by
+        /// <see cref="AppConfig.WaitForExitOrTimeoutDelayMs"/> (default 500 ms) until the timeout is reached.
+        /// If the process exits during this time, the method returns <c>false</c>.
         /// </remarks>
         Task<bool> WaitAndCheckStillRunningAsync(TimeSpan timeout, CancellationToken cancellationToken = default);
 
@@ -107,6 +119,11 @@ namespace Servy.Service.ProcessManagement
         /// Stops the associated process.
         /// </summary>
         /// <param name="timeoutMs">The timeout in milliseconds to wait for the process to stop.</param>
+        /// <returns>
+        /// <see langword="null"/> if the process was already dead;
+        /// <see langword="true"/> if it stopped gracefully;
+        /// <see langword="false"/> if it had to be forcefully killed.
+        /// </returns>
         bool? Stop(int timeoutMs);
 
         /// <summary>
@@ -152,16 +169,6 @@ namespace Servy.Service.ProcessManagement
         /// </summary>
         /// <returns><c>true</c> if the main window has been successfully closed; otherwise, <c>false</c>.</returns>
         bool CloseMainWindow();
-
-        /// <summary>
-        /// Gets the window handle of the main window for the associated process.
-        /// </summary>
-        IntPtr MainWindowHandle { get; }
-
-        /// <summary>
-        /// Gets or sets the overall priority category for the associated process.
-        /// </summary>
-        ProcessPriorityClass PriorityClass { get; set; }
 
         /// <summary>
         /// Begins asynchronous read operations on the redirected standard output stream of the application.

@@ -34,22 +34,46 @@ namespace Servy.Service.ProcessManagement
         /// <inheritdoc/>
         public event DataReceivedEventHandler OutputDataReceived
         {
-            add { _process.OutputDataReceived += value; }
-            remove { _process.OutputDataReceived -= value; }
+            add
+            {
+                ThrowIfDisposed();
+                _process.OutputDataReceived += value;
+            }
+            remove
+            {
+                ThrowIfDisposed();
+                _process.OutputDataReceived -= value;
+            }
         }
 
         /// <inheritdoc/>
         public event DataReceivedEventHandler ErrorDataReceived
         {
-            add { _process.ErrorDataReceived += value; }
-            remove { _process.ErrorDataReceived -= value; }
+            add
+            {
+                ThrowIfDisposed();
+                _process.ErrorDataReceived += value;
+            }
+            remove
+            {
+                ThrowIfDisposed();
+                _process.ErrorDataReceived -= value;
+            }
         }
 
         /// <inheritdoc/>
         public event EventHandler Exited
         {
-            add { _process.Exited += value; }
-            remove { _process.Exited -= value; }
+            add
+            {
+                ThrowIfDisposed();
+                _process.Exited += value;
+            }
+            remove
+            {
+                ThrowIfDisposed();
+                _process.Exited -= value;
+            }
         }
 
         /// <inheritdoc/>
@@ -231,6 +255,10 @@ namespace Servy.Service.ProcessManagement
         /// </returns>
         private bool? TryStopGracefullyOrKill(Process process, int timeoutMs, int postKillWaitMs)
         {
+            // Force the underlying .NET wrapper to drop its cached state and 
+            // query the Windows kernel directly for the true, real-time handle status.
+            process.Refresh();
+
             if (process.HasExited)
             {
                 return null;
@@ -281,7 +309,7 @@ namespace Servy.Service.ProcessManagement
 
             if (!process.WaitForExit(postKillWaitMs))
             {
-                _logger?.Warn($"Process '{process.Format()}' killed, but did not exit within {postKillWaitMs / 1000.0}s.");
+                _logger?.Warn($"Process '{process.Format()}' killed, but did not exit within {postKillWaitMs / (double)AppConfig.MillisecondsPerSecond}s.");
             }
 
             return false;
@@ -301,9 +329,9 @@ namespace Servy.Service.ProcessManagement
                 parentPid = process.Id;
                 parentStartTime = process.StartTime;
             }
-            catch
+            catch (Exception ex)
             {
-                // Process already dead
+                _logger?.Warn($"StopTree could not read process PID/StartTime (descendant enumeration may be incomplete): {ex.Message}");
             }
 
             // 1. RECURSION: Hunt down grandchildren first
@@ -311,13 +339,13 @@ namespace Servy.Service.ProcessManagement
             {
                 using (child)
                 {
-                    _logger?.Info($"Cascading stop to deeper descendant: {child.ProcessName} (PID: {child.Id})...");
+                    _logger?.Info($"Cascading stop to deeper descendant: {child.Format()}...");
                     StopTree(child, timeoutMs);
                 }
             }
 
             // 2. TERMINATION: Kill the current node now that its children are dead
-            _logger?.Info($"Terminating node: {process.ProcessName} (PID: {process.Id})");
+            _logger?.Info($"Terminating node: {process.Format()}");
 
             bool? result = TryStopGracefullyOrKill(process, timeoutMs, AppConfig.DefaultDescendantPostKillWaitMs);
 
@@ -354,7 +382,7 @@ namespace Servy.Service.ProcessManagement
             {
                 using (child) // We no longer need to dispose a native Handle, just the Process object
                 {
-                    _logger?.Info($"Found descendant: {child.ProcessName} (PID: {child.Id}). Initiating cascaded kill...");
+                    _logger?.Info($"Found descendant: {child.Format()}. Initiating cascaded kill...");
                     StopTree(child, timeoutMs);
                 }
             }
@@ -394,7 +422,6 @@ namespace Servy.Service.ProcessManagement
         public void WaitForExit()
         {
             ThrowIfDisposed();
-            if (_process.HasExited) return;
             _process.WaitForExit();
         }
 
@@ -419,14 +446,14 @@ namespace Servy.Service.ProcessManagement
             _process.BeginErrorReadLine();
         }
 
-        ///<inheritdoc/>
+        /// <inheritdoc/>
         public void CancelOutputRead()
         {
             ThrowIfDisposed();
             _process.CancelOutputRead();
         }
 
-        ///<inheritdoc/>
+        /// <inheritdoc/>
         public void CancelErrorRead()
         {
             ThrowIfDisposed();
@@ -501,6 +528,13 @@ namespace Servy.Service.ProcessManagement
 
                 if (!AttachConsole(process.Id))
                 {
+                    // Double check if the process has actually exited under our feet.
+                    // If the process is dead, any attach failure means it's already gone.
+                    if (process.HasExited)
+                    {
+                        return null;
+                    }
+
                     int error = Marshal.GetLastWin32Error();
 
                     // ERROR_PIPE_NOT_CONNECTED (233)

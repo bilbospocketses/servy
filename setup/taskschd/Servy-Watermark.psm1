@@ -1,3 +1,4 @@
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Shared utility module for Servy notification systems.
@@ -43,7 +44,7 @@ function Write-FallbackError {
     #>
     param(
         [string]$Message, 
-        [string]$scriptDir,
+        [string]$ScriptDir,
         [string]$FallbackFileName = "ServyNotificationFallback.log"
     )
     
@@ -53,8 +54,8 @@ function Write-FallbackError {
 
     # Disk logging: Record to a physical file first. 
     # This acts as the primary audit trail for non-interactive background tasks.
-    if ($scriptDir) {
-        $logFile = Join-Path $scriptDir $FallbackFileName
+    if ($ScriptDir) {
+        $logFile = Join-Path $ScriptDir $FallbackFileName
         try {
             Write-ServyLog -FilePath $logFile -Message $Message
         } catch {
@@ -64,9 +65,12 @@ function Write-FallbackError {
 
     # System visibility: Attempt to notify the Windows Application Event Log.
     try {
-        # Ensure source exists before writing to event log
+        # -EntryType is Warning.
+        # This keeps it viewable in the Event Viewer while preventing the EventTrigger task 
+        # subscription (which strictly isolates Level 2) from entering a zero-backoff recursive loop.
+        # Best-effort write; if the 'Servy' source is unregistered this throws and we fall through to the catch
         Write-EventLog -LogName Application -Source "Servy" -EventId $EVENT_ID_ERROR `
-          -EntryType Error -Message $Message -ErrorAction Stop
+          -EntryType Warning -Message $Message -ErrorAction Stop
     } catch {
         # If the Event Log fails, the disk log above remains the final source of truth.
     }
@@ -247,8 +251,7 @@ function Get-EventsToProcess {
         [System.Nullable[DateTime]]$LastProcessed = $null
     )
 
-    # LOGIC FIX: Calling the cmdlet directly since it is now dot-sourced in the module scope
-    # FIX: Explicitly pass the event ID to decouple scope inheritance
+    # Dot-sourced into module scope; pass the event ID explicitly rather than relying on scope inheritance.
     $rawErrors = Get-ServyLastErrors -LastProcessed $LastProcessed -EventLogErrorId $EVENT_ID_ERROR
 
     # CHECK: If no errors, exit quietly
@@ -296,7 +299,9 @@ function ConvertFrom-ServyEventMessage {
     if ($firstLine -match '^\[(.+?)\]\s*(.*)$') {
         return @{
             ServiceName = $matches[1]
-            LogText     = if ($rest) { "$($matches[2])`n$rest" } else { $matches[2] }
+            LogText = if ($rest) {
+                if ([string]::IsNullOrEmpty($matches[2])) { $rest } else { "$($matches[2])`n$rest" }
+            } else { $matches[2] }
         }
     } else {
         return @{

@@ -4,7 +4,7 @@ using Servy.Core.Security;
 using Servy.Core.Services;
 using Servy.Infrastructure.Data;
 using Servy.Manager.Resources;
-using Servy.Manager.Validators;
+using Servy.Manager.Validation;
 using Servy.Manager.ViewModels;
 using Servy.Manager.Services;
 using Servy.Manager.Views;
@@ -12,9 +12,6 @@ using Servy.UI.Bootstrapping;
 using Servy.UI.Services;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-#if !DEBUG
-using System.Diagnostics;
-#endif
 using System.IO;
 using System.Windows;
 using Servy.Manager.Config;
@@ -22,7 +19,7 @@ using AppConfig = Servy.Core.Config.AppConfig;
 using Servy.Manager.Converters;
 using Servy.Core.Helpers;
 using Microsoft.Extensions.DependencyInjection;
-using Servy.Core.Validators;
+using Servy.Core.Validation;
 using Microsoft.Extensions.Configuration;
 using System.Diagnostics.CodeAnalysis;
 
@@ -49,7 +46,7 @@ namespace Servy.Manager
         /// <summary>
         /// Service provider for dependency injection, initialized by the bootstrapper.
         /// </summary>
-        public static IServiceProvider? Services { get; private set; }
+        public static IServiceProvider? Services { get; internal set; }
 
         #endregion
 
@@ -131,9 +128,7 @@ namespace Servy.Manager
             }
         }
 
-        /// <summary>
-        /// Gets the dependencies refresh interval in milliseconds.
-        /// </summary>
+        /// <inheritdoc/>
         public int DependenciesRefreshIntervalInMs { get; private set; }
 
         /// <inheritdoc/>
@@ -174,8 +169,6 @@ namespace Servy.Manager
             services.AddSingleton<IUiDispatcher, WpfUiDispatcher>();
             services.AddSingleton<IProcessHelper, ProcessHelper>();
             services.AddSingleton<IProcessKiller, ProcessKiller>();
-            services.AddSingleton<CpuUsageConverter>();
-            services.AddSingleton<RamUsageConverter>();
 
             Services = services.BuildServiceProvider();
 
@@ -207,7 +200,8 @@ namespace Servy.Manager
                     );
 
                     var fileDialogService = new FileDialogService();
-                    var messageBoxService = new MessageBoxService(new WpfUiDispatcher());
+                    var uiDispatcher = Services.GetRequiredService<IUiDispatcher>();
+                    var messageBoxService = new MessageBoxService(uiDispatcher);
                     var helpService = new HelpService(messageBoxService);
                     var serviceValidationRules = new ServiceValidationRules(processHelper);
                     var serviceConfigurationValidator = new ServiceConfigurationValidator(messageBoxService, serviceValidationRules);
@@ -215,13 +209,12 @@ namespace Servy.Manager
                     var cursorService = new CursorService();
 
                     // 2. Initialize Standalone ViewModels
-                    var logsVm = new LogsViewModel(this, eventLogService, cursorService);
+                    var logsVm = new LogsViewModel(this, eventLogService, cursorService, messageBoxService);
 
                     // Break the circular dependency using local proxy functions
                     MainViewModel? viewModel = null;
                     Action<string> removeServiceProxy = (name) => viewModel?.RemoveService(name);
                     Func<Task> refreshProxy = () => viewModel != null ? viewModel.Refresh() : Task.CompletedTask;
-                    var uiDispatcher = Services.GetRequiredService<IUiDispatcher>();
 
                     var serviceCommands = new ServiceCommands(
                         serviceManager,
@@ -357,7 +350,7 @@ namespace Servy.Manager
 
         #endregion
 
-        #region Events
+        #region Application Lifecycle
 
         /// <summary>
         /// Called when the WPF application starts.
@@ -388,7 +381,7 @@ namespace Servy.Manager
             // 3. Fire-and-forget initialization
             // Use a dedicated async method instead of a chained ContinueWith 
             // to ensure the startup lifecycle and any faults are correctly observed.
-            _ = _bootstrapper.InitializeAppWithFaultHandlingAsync(this, e, Config.AppConfig.Caption);
+            _ = _bootstrapper.InitializeAppWithFaultHandlingAsync(this, e, Config.UiAppConfig.Caption);
         }
 
         /// <summary>

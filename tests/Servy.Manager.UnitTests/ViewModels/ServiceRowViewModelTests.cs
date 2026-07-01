@@ -23,7 +23,7 @@ namespace Servy.Manager.UnitTests.ViewModels
         private ServiceRowViewModel CreateViewModel()
         {
             return new ServiceRowViewModel(
-                new Service { Name = "S" },
+                new Service { Name = "S", Pid = 123 },
                 _serviceCommandsMock.Object,
                 _cursorServiceMock.Object
             );
@@ -97,32 +97,28 @@ namespace Servy.Manager.UnitTests.ViewModels
         [Fact]
         public void StartCommand_ShouldCallStartServiceAsync()
         {
+            // Arrange
             var vm = CreateViewModel();
             var service = new Service { Name = "S" };
             _serviceCommandsMock.Setup(s => s.StartServiceAsync(It.Is<Service>(srv => srv.Name == "S"), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(true)
                 .Verifiable();
 
-            var isInstalled = vm.Service!.IsInstalled;
-            var status = vm.Service!.Status;
-            try
-            {
-                vm.Service!.IsInstalled = true;
-                vm.Service!.Status = ServiceStatus.Stopped;
-                vm.StartCommand.Execute(service);
-            }
-            finally
-            {
-                vm.Service!.IsInstalled = isInstalled;
-                vm.Service!.Status = status;
-            }
+            // CEREMONY REMOVAL FIX: State snapshots dropped since fields isolate natively within individual test frames.
+            vm.Service!.IsInstalled = true;
+            vm.Service!.Status = ServiceStatus.Stopped;
 
+            // Act
+            vm.StartCommand.Execute(service);
+
+            // Assert
             _serviceCommandsMock.Verify();
         }
 
         [Fact]
-        public void StopCommand_ShouldCallStopServiceAsync_OnDispatcherThread()
+        public void StopCommand_ShouldCallStopServiceAsync()
         {
+            // Arrange
             var vm = CreateViewModel();
             var service = new Service { Name = "S" };
 
@@ -131,131 +127,130 @@ namespace Servy.Manager.UnitTests.ViewModels
                 .ReturnsAsync(true)
                 .Verifiable();
 
-            var isInstalled = vm.Service!.IsInstalled;
-            var status = vm.Service!.Status;
-            try
-            {
-                vm.Service!.IsInstalled = true;
-                vm.Service!.Status = ServiceStatus.Running;
-                vm.StopCommand.Execute(service);
-            }
-            finally
-            {
-                vm.Service!.IsInstalled = isInstalled;
-                vm.Service!.Status = status;
-            }
+            // CEREMONY REMOVAL FIX: Preconditions applied directly inline without fragile snapshot wrappers.
+            vm.Service!.IsInstalled = true;
+            vm.Service!.Status = ServiceStatus.Running;
 
+            // Act
+            vm.StopCommand.Execute(service);
+
+            // Assert
             _serviceCommandsMock.Verify();
         }
 
         [Fact]
         public void RestartCommand_ShouldCallRestartServiceAsync()
         {
+            // Arrange
             var vm = CreateViewModel();
             var service = new Service { Name = "S" };
             _serviceCommandsMock.Setup(s => s.RestartServiceAsync(It.Is<Service>(srv => srv.Name == "S"), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(true)
                 .Verifiable();
 
-            var isInstalled = vm.Service!.IsInstalled;
-            var status = vm.Service!.Status;
-            try
-            {
-                vm.Service!.IsInstalled = true;
-                vm.Service!.Status = ServiceStatus.Running;
-                vm.RestartCommand.Execute(service);
-            }
-            finally
-            {
-                vm.Service!.IsInstalled = isInstalled;
-                vm.Service!.Status = status;
-            }
+            // CEREMONY REMOVAL FIX: Inline preconditions assigned cleanly.
+            vm.Service!.IsInstalled = true;
+            vm.Service!.Status = ServiceStatus.Running;
 
+            // Act
+            vm.RestartCommand.Execute(service);
+
+            // Assert
             _serviceCommandsMock.Verify();
         }
 
         [Fact]
         public void ConfigureCommand_ShouldCallConfigureServiceAsync()
         {
+            // Arrange
             var vm = CreateViewModel();
             var service = new Service { Name = "S" };
             _serviceCommandsMock.Setup(s => s.ConfigureServiceAsync(It.IsAny<Service>(), It.IsAny<CancellationToken>()))
               .Returns(Task.CompletedTask)
               .Verifiable();
 
+            // Act
             vm.ConfigureCommand.Execute(service);
 
+            // Assert
             _serviceCommandsMock.Verify();
         }
 
         [Fact]
         public void InstallCommand_ShouldCallInstallServiceAsync()
         {
+            // Arrange
             var vm = CreateViewModel();
             var service = new Service { Name = "S" };
             _serviceCommandsMock.Setup(s => s.InstallServiceAsync(It.Is<Service>(srv => srv.Name == "S"), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(true)
                 .Verifiable();
 
+            // Act
             vm.InstallCommand.Execute(service);
 
+            // Assert
             _serviceCommandsMock.Verify();
         }
 
         [Fact]
         public void UninstallCommand_ShouldCallUninstallServiceAsync()
         {
+            // Arrange
             var vm = CreateViewModel();
             var service = new Service { Name = "S" };
             _serviceCommandsMock.Setup(s => s.UninstallServiceAsync(It.Is<Service>(srv => srv.Name == "S"), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(true)
                 .Verifiable();
 
-            var isInstalled = vm.Service!.IsInstalled;
-            try
-            {
-                vm.Service!.IsInstalled = true;
-                vm.UninstallCommand.Execute(service);
-            }
-            finally
-            {
-                vm.Service!.IsInstalled = isInstalled;
-            }
+            // CEREMONY REMOVAL FIX: Redundant try/finally blocks eliminated to improve maintainability.
+            vm.Service!.IsInstalled = true;
 
+            // Act
+            vm.UninstallCommand.Execute(service);
+
+            // Assert
             _serviceCommandsMock.Verify();
         }
 
         [Fact]
         public void RemoveCommand_ShouldCallRemoveServiceAsync()
         {
+            // Arrange
             var vm = CreateViewModel();
             var service = new Service { Name = "S" };
             _serviceCommandsMock.Setup(s => s.RemoveServiceAsync(It.Is<Service>(srv => srv.Name == "S"), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(true)
                 .Verifiable();
 
+            // Act
             vm.RemoveCommand.Execute(service);
 
+            // Assert
             _serviceCommandsMock.Verify();
         }
 
         [Fact]
         public void ExportXmlCommand_ShouldCallExportServiceToXmlAsync()
         {
+            // Arrange
             var vm = CreateViewModel();
             var service = new Service { Name = "S" };
             _serviceCommandsMock.Setup(s => s.ExportServiceToXmlAsync(It.Is<Service>(srv => srv.Name == "S"), It.IsAny<CancellationToken>()))
                 .Returns(Task.CompletedTask)
                 .Verifiable();
 
+            // Act
             vm.ExportXmlCommand.Execute(service);
 
+            // Assert
             _serviceCommandsMock.Verify();
         }
 
         [Fact]
         public void ExportJsonCommand_ShouldCallExportServiceToJsonAsync()
         {
+            // Arrange
             var vm = CreateViewModel();
 
             _serviceCommandsMock
@@ -263,8 +258,10 @@ namespace Servy.Manager.UnitTests.ViewModels
                   .Returns(Task.CompletedTask)
                   .Verifiable();
 
+            // Act
             vm.ExportJsonCommand.Execute(null);
 
+            // Assert
             _serviceCommandsMock.Verify();
         }
 
@@ -274,7 +271,7 @@ namespace Servy.Manager.UnitTests.ViewModels
             // Arrange
             var vm = CreateViewModel();
             _serviceCommandsMock
-                .Setup(s => s.CopyPidAsync(It.Is<Service>(srv => srv.Name == "S")))
+                .Setup(s => s.CopyPidAsync(It.Is<Service>(srv => srv.Name == "S"), It.IsAny<CancellationToken>()))
                 .Returns(Task.CompletedTask)
                 .Verifiable();
 
@@ -335,9 +332,12 @@ namespace Servy.Manager.UnitTests.ViewModels
             service.Status = ServiceStatus.Stopped;
             service.Pid = 0;
 
-            // Assert Notification Triggers
-            Assert.Contains(nameof(vm.IsSelected), propertiesChanged);
-            Assert.Contains(nameof(vm.IsChecked), propertiesChanged);
+            // Assert Notification Triggers & Optimization Coverage
+            // Verify that properties are modified, but duplicates are suppressed cleanly by equality guards
+            Assert.Equal(1, propertiesChanged.Count(p => p == nameof(vm.IsSelected)));
+            Assert.Equal(1, propertiesChanged.Count(p => p == nameof(vm.IsChecked)));
+
+            // Core model mutations should still stream through at-least-once via automatic forwarding hooks
             Assert.Contains(nameof(vm.Status), propertiesChanged);
             Assert.Contains(nameof(vm.Pid), propertiesChanged);
         }

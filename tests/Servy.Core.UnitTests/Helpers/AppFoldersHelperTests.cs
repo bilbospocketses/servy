@@ -27,7 +27,7 @@ namespace Servy.Core.UnitTests.Helpers
         [InlineData("Data Source=db.db;", "key.aes", "")]
         public void EnsureFolders_NullOrWhitespaceArgs_Throws(string? conn, string? key, string? iv)
         {
-            Assert.Throws<ArgumentNullException>(() => AppFoldersHelper.EnsureFolders(conn!, key!, iv!));
+            Assert.Throws<ArgumentException>(() => AppFoldersHelper.EnsureFolders(conn!, key!, iv!));
         }
 
         [Fact]
@@ -62,11 +62,6 @@ namespace Servy.Core.UnitTests.Helpers
             var key = Path.Combine(keyFolder, "key.aes");
             var iv = Path.Combine(ivFolder, "iv.aes");
 
-            // Ensure folders do not exist, but keep _tempDir intact
-            if (Directory.Exists(dbFolder)) Directory.Delete(dbFolder, true);
-            if (Directory.Exists(keyFolder)) Directory.Delete(keyFolder, true);
-            if (Directory.Exists(ivFolder)) Directory.Delete(ivFolder, true);
-
             // Call the helper
             AppFoldersHelper.EnsureFolders(conn, key, iv);
 
@@ -93,7 +88,7 @@ namespace Servy.Core.UnitTests.Helpers
         public void EnsureFolders_AESKeyPath_NoDirectory_ThrowsInvalidOperationException()
         {
             var conn = $"Data Source={Path.Combine(_tempDir, "db", "Servy.db")};";
-            var key = "key.aes"; // no folder -> Path.GetDirectoryName returns null
+            var key = "key.aes"; // no folder -> Path.GetDirectoryName returns "" (empty)
             var iv = Path.Combine(_tempDir, "iv", "iv.aes");
 
             var ex = Assert.Throws<InvalidOperationException>(() =>
@@ -107,7 +102,7 @@ namespace Servy.Core.UnitTests.Helpers
         {
             var conn = $"Data Source={Path.Combine(_tempDir, "db", "Servy.db")};";
             var key = Path.Combine(_tempDir, "key", "key.aes");
-            var iv = "iv.aes"; // no folder -> Path.GetDirectoryName returns null
+            var iv = "iv.aes"; // no folder -> Path.GetDirectoryName returns "" (empty)
 
             var ex = Assert.Throws<InvalidOperationException>(() =>
                 AppFoldersHelper.EnsureFolders(conn, key, iv));

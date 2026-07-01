@@ -3,6 +3,7 @@ using Newtonsoft.Json.Linq;
 using Servy.Core.Config;
 using Servy.Core.Helpers;
 using Servy.Core.Logging;
+using Servy.Core.Security;
 using Servy.UI.Resources;
 using System.Diagnostics;
 using System.Net.Http;
@@ -15,11 +16,6 @@ namespace Servy.UI.Services
     /// </summary>
     public class HelpService : IHelpService
     {
-        /// <summary>
-        /// A hook for integration tests to prevent the browser from opening.
-        /// </summary>
-        public static bool IsHeadlessMode { get; set; }
-
         private readonly IMessageBoxService _messageBoxService;
 
         /// <summary>
@@ -49,7 +45,7 @@ namespace Servy.UI.Services
         }
 
         /// <inheritdoc />
-        public async Task OpenDocumentation(string caption)
+        public async Task OpenDocumentationAsync(string caption)
         {
             try
             {
@@ -68,18 +64,18 @@ namespace Servy.UI.Services
         }
 
         /// <inheritdoc />
-        public async Task CheckUpdates(string caption)
+        public async Task CheckUpdatesAsync(string caption)
         {
             try
             {
-                // 10 seconds is the ideal 'patience window' for a manual UI trigger
+                // Patience window for a manual UI trigger (see AppConfig.UpdateCheckTimeoutSeconds)
                 using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(AppConfig.UpdateCheckTimeoutSeconds)))
                 using (var response = await _httpClient.GetAsync(AppConfig.LatestReleaseApiUrl, cts.Token))
                 {
                     response.EnsureSuccessStatusCode();
 
                     var content = await response.Content.ReadAsStringAsync(cts.Token);
-                    var json = JsonConvert.DeserializeObject<JObject>(content);
+                    var json = JsonConvert.DeserializeObject<JObject>(content, JsonSecurity.UntrustedDataSettings);
                     string? tagName = json?["tag_name"]?.ToString();
 
                     if (string.IsNullOrEmpty(tagName))
@@ -127,7 +123,7 @@ namespace Servy.UI.Services
             }
             catch (OperationCanceledException)
             {
-                // Specific handling for the 10-second timeout
+                // Specific handling for the update-check timeout (AppConfig.UpdateCheckTimeoutSeconds)
                 Logger.Warn("Update check timed out.");
                 await _messageBoxService.ShowErrorAsync(Strings.Msg_UpdateCheckTimeout, caption);
             }
@@ -146,11 +142,6 @@ namespace Servy.UI.Services
         /// </summary>
         private static Version NormalizeVersion(Version version)
         {
-            if (version == null)
-            {
-                return new Version(0, 0, 0, 0);
-            }
-
             int major = version.Major;
             int minor = version.Minor;
             int build = version.Build < 0 ? 0 : version.Build;
@@ -160,7 +151,7 @@ namespace Servy.UI.Services
         }
 
         /// <inheritdoc />
-        public async Task OpenAboutDialog(string about, string caption)
+        public async Task OpenAboutDialogAsync(string about, string caption)
         {
             await _messageBoxService.ShowInfoAsync(about, caption);
         }
@@ -180,7 +171,7 @@ namespace Servy.UI.Services
         private static void OpenExternalUrl(string url, string headlessLabel, string fallbackDebug)
         {
             var psi = new ProcessStartInfo { FileName = url, UseShellExecute = true };
-            if (IsHeadlessMode)
+            if (UiHeadless.IsEnabled)
             {
                 Console.WriteLine($"[HEADLESS INFO] {headlessLabel}: opening browser URL {psi.FileName}");
                 return;

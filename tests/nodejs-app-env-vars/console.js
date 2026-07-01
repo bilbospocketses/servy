@@ -1,15 +1,13 @@
 /**
  * Small Node.js utility to test environment variables in Servy.
- * 
- * Usage example:
- * .\\servy-cli.exe install --name "ServyEnvTest" --path "C:\\Program Files\\nodejs\\node.exe" --params "C:\\path\\to\\nodejs-app-env-vars\\index.js" --env "var1=val1;var2=val2;"
- * 
- * This script writes all environment variables except those in baselineEnvKeys to 'output.txt' in the script directory,
+ * * Usage example:
+ * .\servy-cli.exe install --name "ServyEnvTest" --path "C:\Program Files\nodejs\node.exe" --params "C:\path\to\nodejs-app-env-vars\console.js" --env "var1=val1;var2=val2;"
+ * * This script writes all environment variables except those in baselineEnvKeys to 'output.txt' in the script directory,
  * and logs them to the console.
  */
 
 import process from "node:process"
-import { spawn } from "node:child_process"
+// import { spawn } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -67,11 +65,37 @@ fs.appendFileSync(filePath, '\n', "utf8")
 
 // // allow the child process to keep running after parent exits
 // child.unref()
-
-// const child = spawn('C:\\Users\\aelassas\\AppData\\Local\\Programs\\Python\\Python313\\python.exe', ['-u', 'E:\\dev\\servy\\src\\tests\\ctrlc.py'])
+// const child = spawn(process.env.PYTHON_EXE, ['-u', 'C:\\path\\to\\tests\\ctrlc.py'])
 // child.unref()
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// Registered event handles shifted ABOVE the infinite execution block
+// so they successfully attach and provide operational termination interception pathways.
+
+// Handle Ctrl+C (SIGINT) and other termination signals
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGQUIT']) {
+  process.once(signal, () => {
+    const msg = `Received ${signal} - shutting down gracefully...\n`
+    process.stdout.write(msg)
+    fs.appendFileSync(filePath, msg, "utf8")
+    // Perform cleanup here (e.g., close DB connections, stop servers, etc.)
+    process.exit(0)
+  })
+}
+
+// Simulate long-running app:
+// process.stdout.write('App is running. Press Ctrl+C to stop.')
+// setInterval(() => { }, 1000)
+
+// keep Node alive until key press
+process.stdin.setRawMode(true)
+process.stdin.resume()
+process.stdin.on('data', () => {
+  process.stdout.write('Exiting...\n')
+  // child.kill() // kill the child process
+  process.exit(0)
+})
 
 // while (true) {
 //   process.stdout.write('[stdout] App is running. Press any key to stop.\n')
@@ -91,29 +115,3 @@ while (true) {
   process.stdout.write('--------------------------------\n')
   await wait(2000)
 }
-
-// Handle Ctrl+C (SIGINT) and other termination signals
-for (const signal of ['SIGINT', 'SIGTERM', 'SIGQUIT']) {
-  process.once(signal, () => {
-    const msg = `Received ${signal} - shutting down gracefully...\n`
-    process.stdout.write(msg)
-    fs.appendFileSync(filePath, msg, "utf8")
-    // Perform cleanup here (e.g., close DB connections, stop servers, etc.)
-    process.exit(0)
-  })
-}
-
-// Simulate long-running app:
-// process.stdout.write('App is running. Press Ctrl+C to stop.')
-// setInterval(() => { }, 1000)
-
-
-// keep Node alive until key press
-process.stdin.setRawMode(true)
-process.stdin.resume()
-process.stdin.on('data', () => {
-  process.stdout.write('Exiting...\n')
-  console.log('Exiting...')
-  // child.kill() // kill the child process
-  process.exit(0)
-})

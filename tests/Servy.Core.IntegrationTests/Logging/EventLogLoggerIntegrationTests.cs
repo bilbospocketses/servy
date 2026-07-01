@@ -1,8 +1,9 @@
 ﻿using Servy.Core.Config;
+using Servy.Core.Logging;
 using Servy.Testing;
 using System.Diagnostics;
 
-namespace Servy.Core.Logging.IntegrationTests
+namespace Servy.Core.IntegrationTests.Logging
 {
     [Collection("EventLogLoggerIntegrationTests")]
     public class EventLogLoggerIntegrationTests : IDisposable
@@ -186,7 +187,7 @@ namespace Servy.Core.Logging.IntegrationTests
         }
 
         [Fact]
-        public void ScopedLogger_InheritsSettings_ButCanOverrideIsEventLogEnabled()
+        public void ScopedLogger_SetIsEventLogEnabled_PropagatesToParent()
         {
             string source = GenerateSourceName();
             using (var rootLogger = new EventLogLogger(source, LogLevel.Error, false))

@@ -13,6 +13,22 @@
         public const string NoDependencies = "\0\0";
 
         /// <summary>
+        /// Splits a raw textual dependency listing into trimmed, non-empty service name tokens based on canonical formatting separators.
+        /// </summary>
+        /// <param name="input">The raw configuration text string containing service dependencies.</param>
+        /// <returns>An enumerable sequence of normalized, clean service name tokens.</returns>
+        public static IEnumerable<string> Tokenize(string? input)
+        {
+            if (string.IsNullOrWhiteSpace(input))
+                return Enumerable.Empty<string>();
+
+            return input
+                .Split(new[] { ';', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => s.Trim())
+                .Where(s => s.Length > 0);
+        }
+
+        /// <summary>
         /// Parses a textual dependency list into the Windows MULTI_SZ format required by the Service Control Manager.
         /// </summary>
         /// <param name="input">
@@ -29,18 +45,18 @@
         /// </list>
         /// </returns>
         /// <remarks>
-        /// - Duplicate dependency names are removed (case-insensitive).  
-        /// - Passing <c>null</c> or an empty string will clear all dependencies.  
+        /// <list type="bullet">
+        /// <item><description>Duplicate dependency names are removed (case-insensitive).</description></item>
+        /// <item><description>Passing <c>null</c> or an empty string will clear all dependencies.</description></item>
+        /// </list>
         /// </remarks>
         public static string Parse(string? input)
         {
             if (string.IsNullOrWhiteSpace(input))
                 return NoDependencies;
 
-            var parts = input
-                .Split(new[] { ';', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(s => s.Trim())
-                .Where(s => s.Length > 0)
+            // Delegate string chunk extraction to our centralized token parser engine
+            var parts = Tokenize(input)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
@@ -51,8 +67,8 @@
             // the Service Control Manager expects dependency lists as a multi-string (MULTI_SZ),
             // which is a sequence of null-terminated strings ending with an additional null 
             // terminator (i.e., strings separated by \0 and double \0 at the end).
-            return string.Join("\0", parts) + "\0\0";
+            // "no dependencies" vs "list terminator" are the same SCM construct.
+            return string.Join("\0", parts) + NoDependencies;
         }
-
     }
 }
