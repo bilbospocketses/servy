@@ -56,11 +56,20 @@ namespace Servy.Service.Helpers
         };
 
         /// <summary>
+        /// Centralized regular expression sub-pattern representing the optimized case-insensitive 
+        /// word boundaries and alternation maps for sensitive credential keys.
+        /// </summary>
+        private static readonly string KeywordBoundaryPattern =
+            // Keyword: Negative lookarounds allow _, ., and - as valid boundaries without consuming them.
+            // Suffix group pulled inside the 'key' named capture parenthesis to safeguard composite descriptors.
+            @"(?i)(?<![a-zA-Z0-9])(?<key>(?:" + string.Join("|", SensitiveKeyWords.Select(Regex.Escape)) + @")(?:_[A-Za-z0-9]+)*)(?![a-zA-Z0-9])";
+
+        /// <summary>
         /// A specialized regex for matching sensitive keys. 
         /// Uses the same boundary logic as MaskingRegex to avoid false positives like 'MONKEY_TYPE'.
         /// </summary>
         private static readonly Regex KeyMatcherRegex = new Regex(
-            @"(?i)(?<![a-zA-Z0-9])(" + string.Join("|", SensitiveKeyWords.Select(Regex.Escape)) + @")(?![a-zA-Z0-9])",
+            KeywordBoundaryPattern,
             RegexOptions.Compiled,
             AppConfig.InputRegexTimeout);
 
@@ -69,30 +78,31 @@ namespace Servy.Service.Helpers
         /// within raw command-line argument strings.
         /// </summary>
         /// <remarks>
-        /// Added support for quoted values and preserved separators.
         /// The value pattern handles both quoted strings and standard tokens, including
         /// multi-word values that do not look like subsequent CLI flags.
         /// </remarks>
         private static readonly Regex MaskingRegex = new Regex(
-            // 1. Keyword: Negative lookarounds allow _, ., and - as valid boundaries without consuming them
-            @"(?i)(?<![a-zA-Z0-9])(" + string.Join("|", SensitiveKeyWords.Select(Regex.Escape)) + @")(?![a-zA-Z0-9])" +
+             // 1. Unified Keyword Pattern
+             KeywordBoundaryPattern +
 
-            // 2. Separator & Value (Two Branches)
-            @"(?:" +
-                // BRANCH A: Explicit Separators (:, =, /)
-                // Aggressively consumes spaces for unquoted strings (e.g., "KEY=---BEGIN RSA---") 
-                // as long as the next word isn't another CLI flag.
-                @"(\s*[:=]\s*|/)" +
-                @"(?:""[^""]*""|'[^']*'|(?:[^\s""']+(?:\s+(?![\-/]+[a-zA-Z])[^\s""']+)*))" +
-                @"|" +
-                // BRANCH B: Space Separator
-                // Consumes unquoted strings, supporting multi-word values (e.g., "my secret pass")
-                // but stops consuming if it detects a subsequent CLI flag.
-                @"(\s+)(?![\-/]+[a-zA-Z])" +
-                @"(?:""[^""]*""|'[^']*'|(?:[^\s""']+(?:\s+(?![\-/]+[a-zA-Z])[^\s""']+)*))" +
-            @")",
-            RegexOptions.Compiled,
-            AppConfig.InputRegexTimeout);
+             // 2. Separator & Value (Two Branches)
+             @"(?:" +
+                 // BRANCH A: Explicit Separators (:, =, /)
+                 // Aggressively consumes spaces for unquoted strings (e.g., "KEY=---BEGIN RSA---") 
+                 // as long as the next word isn't another CLI flag.
+                 // Entire choice block is wrapped in an atomic group (?>...) to prevent catastrophic backtracking.
+                 @"(?<sep>\s*[:=]\s*|/)" +
+                 @"(?>(?<val>""[^""]*""|'[^']*'|(?:[^\s""']+(?:\s+(?![\-/]+[a-zA-Z])[^\s""']+)*)))" +
+                 @"|" +
+                 // BRANCH B: Space Separator
+                 // Consumes unquoted strings, supporting multi-word values (e.g., "my secret pass")
+                 // but stops consuming if it detects a subsequent CLI flag.
+                 // Entire choice block is wrapped in an atomic group (?>...) to prevent catastrophic backtracking.
+                 @"(?<sep>\s+)(?![\-/]+[a-zA-Z])" +
+                 @"(?>(?<val>""[^""]*""|'[^']*'|(?:[^\s""']+(?:\s+(?![\-/]+[a-zA-Z])[^\s""']+)*)))" +
+             @")",
+             RegexOptions.Compiled,
+             AppConfig.InputRegexTimeout);
 
         #endregion
 
@@ -125,7 +135,7 @@ namespace Servy.Service.Helpers
         #region IServiceHelper implementation
 
         /// <inheritdoc />
-        public void LogStartupArguments(IServyLogger? logger, StartOptions options)
+        public void LogStartupArguments(StartOptions options, IServyLogger? logger)
         {
             if (options == null)
             {
@@ -146,8 +156,8 @@ namespace Servy.Service.Helpers
                   $"- enableConsoleUI: {options.EnableConsoleUI}\n\n" +
 
                   "--------Logging----------------\n" +
-                  $"- stdoutFilePath: {options.StdOutPath}\n" +
-                  $"- stderrFilePath: {options.StdErrPath}\n" +
+                  $"- stdoutFilePath: {options.StdoutPath}\n" +
+                  $"- stderrFilePath: {options.StderrPath}\n" +
                   $"- enableSizeRotation: {options.EnableSizeRotation}\n" +
                   $"- rotationSizeInBytes: {options.RotationSizeInBytes}\n" +
                   $"- enableDateRotation: {options.EnableDateRotation}\n" +
@@ -167,8 +177,8 @@ namespace Servy.Service.Helpers
                   "--------Pre-Launch-------------\n" +
                   $"- preLaunchExecutablePath: {options.PreLaunchExecutablePath}\n" +
                   $"- preLaunchWorkingDirectory: {options.PreLaunchWorkingDirectory}\n" +
-                  $"- preLaunchStdOutPath: {options.PreLaunchStdoutPath}\n" +
-                  $"- preLaunchStdErrPath: {options.PreLaunchStderrPath}\n" +
+                  $"- preLaunchStdoutPath: {options.PreLaunchStdoutPath}\n" +
+                  $"- preLaunchStderrPath: {options.PreLaunchStderrPath}\n" +
                   $"- preLaunchTimeout: {options.PreLaunchTimeoutInSeconds}\n" +
                   $"- preLaunchRetryAttempts: {options.PreLaunchRetryAttempts}\n" +
                   $"- preLaunchIgnoreFailure: {options.PreLaunchIgnoreFailure}\n\n" +
@@ -224,7 +234,7 @@ namespace Servy.Service.Helpers
         }
 
         /// <inheritdoc />
-        public void EnsureValidWorkingDirectory(StartOptions options, IServyLogger logger)
+        public void EnsureValidWorkingDirectory(StartOptions options, IServyLogger? logger)
         {
             // Check if the current directory is missing, malformed, or physically non-existent
             if (string.IsNullOrWhiteSpace(options.WorkingDirectory) ||
@@ -237,7 +247,7 @@ namespace Servy.Service.Helpers
                     : options.WorkingDirectory;
 
                 // 2. Establish the absolute floor (System32)
-                string system32 = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32");
+                string system32 = Environment.GetFolderPath(Environment.SpecialFolder.System);
 
                 // 3. derive fallback from ExecutablePath with explicit guards
                 // This avoids ArgumentNullException on older runtimes and handles malformed roots
@@ -264,7 +274,7 @@ namespace Servy.Service.Helpers
         /// <inheritdoc />
         public bool ValidateAndLog(StartOptions options, IServyLogger? logger)
         {
-            LogStartupArguments(logger, options);
+            LogStartupArguments(options, logger);
 
             if (!ValidateStartupOptions(logger, options))
             {
@@ -282,7 +292,7 @@ namespace Servy.Service.Helpers
                     string realArgs,
                     string workingDir,
                     List<EnvironmentVariable> environmentVariables,
-                    IServyLogger logger,
+                    IServyLogger? logger,
                     int stopTimeoutMs,
                     CancellationToken cancellationToken = default)
         {
@@ -331,7 +341,7 @@ namespace Servy.Service.Helpers
                     }
                 }
 
-                startProcess?.Invoke(realExePath, realArgs, workingDir, environmentVariables, cancellationToken);
+                startProcess.Invoke(realExePath, realArgs, workingDir, environmentVariables, cancellationToken);
 
                 logger?.Info("Process restarted.");
             }
@@ -348,7 +358,7 @@ namespace Servy.Service.Helpers
         }
 
         /// <inheritdoc />
-        public void RestartService(IServyLogger logger, string serviceName)
+        public void RestartService(string serviceName, IServyLogger? logger)
         {
             try
             {
@@ -422,7 +432,7 @@ namespace Servy.Service.Helpers
         }
 
         /// <inheritdoc />
-        public void RestartComputer(IServyLogger logger)
+        public void RestartComputer(IServyLogger? logger)
         {
             try
             {
@@ -484,7 +494,7 @@ namespace Servy.Service.Helpers
         /// </summary>
         /// <param name="vars">The collection of environment variables to process.</param>
         /// <returns>A semicolon-separated string of key-value pairs, or "None" if the collection is null.</returns>
-        private string EnvironmentVariablesToString(IEnumerable<EnvironmentVariable> vars)
+        private static string EnvironmentVariablesToString(IEnumerable<EnvironmentVariable> vars)
         {
             if (vars == null) return "None";
 
@@ -525,7 +535,7 @@ namespace Servy.Service.Helpers
         /// </summary>
         /// <param name="args">The raw string of executable arguments.</param>
         /// <returns>A string with masked credentials, or the original string if no sensitive patterns are found.</returns>
-        private string? MaskRawArguments(string? args)
+        internal static string? MaskRawArguments(string? args)
         {
             if (string.IsNullOrWhiteSpace(args)) return args;
 
@@ -533,12 +543,26 @@ namespace Servy.Service.Helpers
             {
                 return MaskingRegex.Replace(args, m =>
                 {
-                    // m.Groups[1] is the Keyword
-                    // m.Groups[2] is the Explicit Separator (Branch A)
-                    // m.Groups[3] is the Space Separator (Branch B)
-                    string separator = m.Groups[2].Success ? m.Groups[2].Value : m.Groups[3].Value;
+                    string key = m.Groups["key"].Value;
+                    string sep = m.Groups["sep"].Value;
+                    string val = m.Groups["val"].Value;
 
-                    return $"{m.Groups[1].Value}{separator}********";
+                    // Cleanly catch encapsulated quoted string allocations first to block space-splitting leaks
+                    if ((val.StartsWith("\"", StringComparison.Ordinal) && val.EndsWith("\"", StringComparison.Ordinal)) ||
+                        (val.StartsWith("'", StringComparison.Ordinal) && val.EndsWith("'", StringComparison.Ordinal)))
+                    {
+                        return $"{key}{sep}********";
+                    }
+
+                    // Branch B unquoted fallback: isolate and mask only the final whitespace-delimited argument token
+                    int lastSpaceInValue = val.LastIndexOf(' ');
+                    if (lastSpaceInValue >= 0)
+                    {
+                        string intermediateText = val.Substring(0, lastSpaceInValue + 1);
+                        return $"{key}{sep}{intermediateText}********";
+                    }
+
+                    return $"{key}{sep}********";
                 });
             }
             catch (RegexMatchTimeoutException)

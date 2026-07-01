@@ -30,8 +30,8 @@ namespace Servy.CLI.Commands
         /// <returns>A <see cref="CommandResult"/> indicating success or failure.</returns>
         public async Task<CommandResult> ExecuteAsync(StartServiceOptions opts, CancellationToken cancellationToken = default)
         {
-            var action = $"start service '{opts.ServiceName}'";
-            var suggestion = "Ensure the service is installed, the executable path is valid, and the service account has 'Log On As Service' rights.";
+            var action = string.Format(Strings.Msg_StartServiceAction, opts.ServiceName);
+            var suggestion = Strings.Msg_StartServiceSuggestion;
 
             return await ExecuteServiceOperationAsync(
                 commandName: "start",
@@ -41,11 +41,7 @@ namespace Servy.CLI.Commands
                 serviceManager: _serviceManager,
                 operation: (token) => _serviceManager.StartServiceAsync(opts.ServiceName, cancellationToken: token),
                 successMessageFormatter: (name) => string.Format(Strings.Msg_StartSuccess, name),
-                preCheck: (token) =>
-                {
-                    var startupType = _serviceManager.GetServiceStartupType(opts.ServiceName, cancellationToken: token);
-                    return startupType == ServiceStartType.Disabled ? CommandResult.Fail(Strings.Msg_ServiceDisabledError) : null;
-                },
+                preCheck: NotDisabledPreCheck(_serviceManager, opts.ServiceName),
                 cancellationToken: cancellationToken);
         }
     }

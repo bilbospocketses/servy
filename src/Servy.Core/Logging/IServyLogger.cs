@@ -3,7 +3,7 @@
     /// <summary>
     /// Defines methods for logging informational, warning, and error messages.
     /// </summary>
-    public interface IServyLogger: IDisposable
+    public interface IServyLogger : IDisposable
     {
         /// <summary>
         /// Gets the optional prefix to be prepended to every log message 
@@ -20,8 +20,11 @@
         /// sub-component or background task.
         /// </remarks>
         /// <param name="prefix">The string to prepend to messages in the new scoped logger.</param>
-        /// <returns>A new <see cref="IServyLogger"/> instance configured with the specified prefix.</returns>
-        IServyLogger CreateScoped(string prefix);
+        /// <returns>
+        /// A new <see cref="IServyLogger"/> instance configured with the specified prefix,
+        /// or the current logger instance unchanged when <paramref name="prefix"/> is null or whitespace.
+        /// </returns>
+        IServyLogger CreateScoped(string? prefix);
 
         /// <summary>
         /// Sets the minimum log level to be recorded. 

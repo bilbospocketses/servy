@@ -1,6 +1,5 @@
 ﻿using Microsoft.Win32;
 using Servy.Core.Config;
-using Servy.Core.Helpers;
 using Servy.Core.Logging;
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -17,7 +16,7 @@ namespace Servy.Core.Security
     /// Each instance manages its own key and IV file paths, utilizing in-memory caching to optimize
     /// performance and minimize DPAPI/Disk I/O roundtrips.
     /// </summary>
-    public class ProtectedKeyProvider : IProtectedKeyProvider, IDisposable
+    public class ProtectedKeyProvider : SecureDisposable, IProtectedKeyProvider
     {
         #region Security & Synchronization Settings
 
@@ -26,15 +25,15 @@ namespace Servy.Core.Security
         /// <see cref="DataProtectionScope.LocalMachine"/> is used to allow the service to access 
         /// the keys regardless of the specific user account context (e.g., SYSTEM vs. Service Account).
         /// </summary>
-        private static readonly DataProtectionScope DataProtectionScope = DataProtectionScope.LocalMachine;
+        private static readonly DataProtectionScope ProtectionScope = DataProtectionScope.LocalMachine;
 
         /// <summary>
         /// Caches the machine-unique entropy to optimize performance and ensure thread-safe initialization.
         /// </summary>
         /// <remarks>
-        /// This field uses <see cref="Lazy{T}"/> to ensure that the machine-specific entropy is only 
-        /// retrieved from the registry once. Caching this value avoids redundant registry I/O operations 
-        /// and string-to-byte conversions during subsequent calls to <see cref="GetKey"/> or <see cref="GetIV"/>.
+        /// The factory may run more than once under concurrent first access and only the published value is 
+        /// shared. Caching this value avoids redundant registry I/O operations and string-to-byte conversions 
+        /// during subsequent calls to <see cref="GetKey"/> or <see cref="GetIV"/>.
         /// </remarks>
         private static readonly Lazy<byte[]> MachineEntropy = new Lazy<byte[]>(GetMachineEntropy, LazyThreadSafetyMode.PublicationOnly);
 
@@ -59,7 +58,6 @@ namespace Servy.Core.Security
         private byte[]? _cachedKey;
         private byte[]? _cachedIv;
         private readonly object _cacheLock = new object();
-        private int _disposed;
 
         #endregion
 
@@ -89,14 +87,14 @@ namespace Servy.Core.Security
 
         #region IProtectedKeyProvider Implementation
 
-        ///<inheritdoc/>
+        /// <inheritdoc/>
         public byte[] GetKey()
         {
             ThrowIfDisposed();
             return GetCachedOrGenerate(ref _cachedKey, _keyFilePath, 32);
         }
 
-        ///<inheritdoc/>
+        /// <inheritdoc/>
         public byte[] GetIV()
         {
             ThrowIfDisposed();
@@ -132,9 +130,10 @@ namespace Servy.Core.Security
                 // GetOrGenerate handles its own internal migration/rotation logic.
                 byte[] decrypted = GetOrGenerate(path, length);
 
-                // Store a clone in the cache so the return value of this method 
-                // (which the caller might eventually zero out) doesn't mutate our cache.
-                cacheField = (byte[])decrypted.Clone();
+                // Capture ownership of the freshly generated key material directly without 
+                // executing an extra intermediate cloning pass. This prevents un-zeroed plaintext 
+                // leftovers from floating on the managed heap before garbage collection.
+                cacheField = decrypted;
 
                 // CODE PARITY: Return a clone directly from the initialized cache field.
                 // This enforces literal parity with the XML documentation contract and guarantees 
@@ -253,7 +252,7 @@ namespace Servy.Core.Security
                 {
                     try
                     {
-                        owned = mutex.WaitOne(TimeSpan.FromSeconds(30));
+                        owned = mutex.WaitOne(TimeSpan.FromSeconds(AppConfig.KeyProviderMutexTimeoutSeconds));
                     }
                     catch (AbandonedMutexException)
                     {
@@ -299,7 +298,7 @@ namespace Servy.Core.Security
             if (!File.Exists(path))
             {
                 byte[] generatedData = null!;
-                RunUnderMutex(path, () => 
+                RunUnderMutex(path, () =>
                 {
                     if (!File.Exists(path))
                     {
@@ -340,8 +339,8 @@ namespace Servy.Core.Security
                             throw;
                         }
 
-                        // Exponential backoff: 100ms after attempt 0, 200ms after attempt 1
-                        Thread.Sleep(100 * (1 << attempt));
+                        // Exponential backoff
+                        Thread.Sleep(AppConfig.KeyProviderReadRetryBackoffBaseMs * (1 << attempt));
                     }
                 }
 
@@ -357,7 +356,7 @@ namespace Servy.Core.Security
                 try
                 {
                     // 1. Primary Attempt (v7.9+ logic): Use machine-unique entropy
-                    var unprotectResult = ProtectedData.Unprotect(encrypted, dynamicEntropy, DataProtectionScope);
+                    var unprotectResult = ProtectedData.Unprotect(encrypted, dynamicEntropy, ProtectionScope);
 
                     // Reset failure counter on successful read with modern entropy
                     MigrationFailureCounts.TryRemove(path, out _);
@@ -367,7 +366,7 @@ namespace Servy.Core.Security
                 catch (CryptographicException)
                 {
                     // 2. Fallback Attempt (v7.8 compatibility): Try with NO entropy (null)
-                    byte[] decryptedData = ProtectedData.Unprotect(encrypted, null, DataProtectionScope);
+                    byte[] decryptedData = ProtectedData.Unprotect(encrypted, null, ProtectionScope);
 
                     try
                     {
@@ -375,7 +374,7 @@ namespace Servy.Core.Security
                         // ROBUSTNESS: Ensure the upgrade save executes within the exact same global 
                         // named mutex namespace as the generation loop. This prevents staging file (.tmp)
                         // naming collisions when multiple services attempt to migrate the same legacy file concurrently.
-                        RunUnderMutex(path, () => 
+                        RunUnderMutex(path, () =>
                         {
                             SaveProtected(path, decryptedData);
                         });
@@ -471,12 +470,11 @@ namespace Servy.Core.Security
                 // Encrypt data with DPAPI using the machine-specific key and additional entropy.
                 // DataProtectionScope is usually LocalMachine for services
                 byte[] dynamicEntropy = MachineEntropy.Value;
-                encrypted = ProtectedData.Protect(data, dynamicEntropy, DataProtectionScope);
+                encrypted = ProtectedData.Protect(data, dynamicEntropy, ProtectionScope);
 
-                // ROBUSTNESS: Switch from Helper.GetUniqueTempPath(path) to a stable, deterministic staging name.
-                // Because this path is strictly executed within a global system mutex (enforced by RunUnderMutex), multiple
-                // concurrent writers cannot clash. If a previous run crashes before File.Move, the next execution path
-                // will cleanly overwrite and self-heal the orphaned staging file instead of leaving it indefinitely.
+                // Use a stable, deterministic staging file name. Because this runs under the global system
+                // mutex (RunUnderMutex), concurrent writers cannot clash, and an orphaned .tmp left by a prior
+                // crash is cleanly overwritten and self-healed rather than accumulating.
                 var tempPath = $"{path}.staging.tmp";
 
                 try
@@ -486,29 +484,14 @@ namespace Servy.Core.Security
 
                     // Apply explicit file-level ACLs to the temp file
                     var fs = new FileSecurity();
-                    var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
-                    var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
                     SecurityIdentifier? currentUserSid;
-                    bool isAdmin;
                     using (var identity = WindowsIdentity.GetCurrent())
                     {
-                        var principal = new WindowsPrincipal(identity);
-                        isAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
                         currentUserSid = identity.User;
                     }
 
-                    // Match the folder's inheritance logic
-                    fs.SetAccessRuleProtection(isProtected: !isChildOfRoot, preserveInheritance: isChildOfRoot);
-
-                    // Explicitly grant Full Control to SYSTEM and Administrators
-                    fs.AddAccessRule(new FileSystemAccessRule(systemSid, FileSystemRights.FullControl, AccessControlType.Allow));
-                    fs.AddAccessRule(new FileSystemAccessRule(adminSid, FileSystemRights.FullControl, AccessControlType.Allow));
-
-                    // Grant operational continuity to the current user (prevents self-lockout on external paths)
-                    if (currentUserSid != null && !currentUserSid.Equals(systemSid) && !isAdmin)
-                    {
-                        fs.AddAccessRule(new FileSystemAccessRule(currentUserSid, FileSystemRights.FullControl, AccessControlType.Allow));
-                    }
+                    // Thread the canonical policy parameters through the central SecurityHelper core
+                    SecurityHelper.ApplySecurityRules(fs, currentUserSid, breakInheritance: !isChildOfRoot);
 
                     new FileInfo(tempPath).SetAccessControl(fs);
 
@@ -564,11 +547,10 @@ namespace Servy.Core.Security
         {
             try
             {
-                using (var eventLog = new EventLog(AppConfig.EventLogName))
-                {
-                    eventLog.Source = AppConfig.EventSource;
-                    eventLog.WriteEntry($"[{AppConfig.EventSource}] {formattedMessage}", type, eventId);
-                }
+                // Delegate Event Log writes directly through the centralized infrastructure helper core
+                // to automatically inherit message truncation constraints and explicit prefix processing policies.
+                string structuredMessage = $"[{AppConfig.EventSource}] {formattedMessage}";
+                EventLogLogger.WriteRawToWindowsEventLog(AppConfig.EventLogName, AppConfig.EventSource, structuredMessage, type, eventId);
             }
             catch (Exception eventLogEx)
             {
@@ -579,62 +561,12 @@ namespace Servy.Core.Security
 
         #endregion
 
-        #region IDisposable Implementation
+        #region SecureDisposable Overrides
 
-        /// <summary>
-        /// Performs strict memory-zeroing of the cached cryptographic material.
-        /// </summary>
-        public void Dispose()
+        /// <inheritdoc />
+        protected override void ZeroSensitiveData()
         {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        /// <summary>
-        /// Finalizes an instance of the <see cref="ProtectedKeyProvider"/> class.
-        /// </summary>
-        /// <remarks>
-        /// The finalizer ensures that sensitive cryptographic material is zeroed out in memory 
-        /// even if the consumer fails to call <see cref="Dispose()"/> explicitly.
-        /// </remarks>
-        ~ProtectedKeyProvider()
-        {
-            Dispose(false);
-        }
-
-        /// <summary>
-        /// Releases the unmanaged resources used by the <see cref="ProtectedKeyProvider"/> and optionally releases the managed resources.
-        /// </summary>
-        /// <param name="disposing">
-        /// <see langword="true"/> to release both managed and unmanaged resources; 
-        /// <see langword="false"/> to release only unmanaged resources.
-        /// </param>
-        /// <remarks>
-        /// This implementation uses <see cref="Interlocked.Exchange(ref int, int)"/> as an atomic guard to ensure memory 
-        /// zeroing occurs only once. Managed resource cleanup involves zeroing sensitive cached key material.
-        /// </remarks>
-        protected virtual void Dispose(bool disposing)
-        {
-            // 1. ATOMIC GUARD: Flip the flag BEFORE wiping memory.
-            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-
-            // 2. ZEROING runs in BOTH paths - managed keys are still reachable from the finalizer
-            // and zeroing them is non-allocating, finalizer-safe, and idempotent.
             InvalidateCache();
-        }
-
-        /// <summary>
-        /// Throws an <see cref="ObjectDisposedException"/> if this instance has already been disposed.
-        /// </summary>
-        /// <remarks>
-        /// Utilizes <see cref="Volatile.Read(ref int)"/> to ensure the disposal state is accurately 
-        /// synchronized across CPU caches without the overhead of a full lock.
-        /// </remarks>
-        /// <exception cref="ObjectDisposedException">Thrown if the provider has been disposed.</exception>
-        private void ThrowIfDisposed()
-        {
-            if (Volatile.Read(ref _disposed) != 0)
-                throw new ObjectDisposedException(GetType().Name);
         }
 
         #endregion

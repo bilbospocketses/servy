@@ -3,7 +3,6 @@ using Servy.Core.DTOs;
 using Servy.Core.Logging;
 using Servy.Manager.Config;
 using Servy.Manager.Design;
-using Servy.Manager.Mappers;
 using Servy.Manager.Models;
 using Servy.Manager.Services;
 using Servy.Manager.Utils;
@@ -34,14 +33,12 @@ namespace Servy.Manager.ViewModels
         // Controls the lifecycle of the background LogTailer streams
         private CancellationTokenSource? _tailingCts;
 
-        private bool _hadSelectedService;
         private string? _consoleSearchText;
         private readonly int _maxLines;
         private string? _stdoutPath;
         private string? _stderrPath;
         private int _currentSessionId = 0; // Track the "active" switch request
         private volatile bool _isSelectionActive;
-        private bool _disposedValue;
         private readonly IAppConfiguration _appConfig;
 
         // Active tailers and their handlers to prevent memory leaks during service switching
@@ -136,12 +133,12 @@ namespace Servy.Manager.ViewModels
                 _stderrPath = value?.StderrPath;
                 OnPropertyChanged(nameof(SelectedService));
 
-                CopyPidCommand?.RaiseCanExecuteChanged();
+                CopyPidCommand.RaiseCanExecuteChanged();
 
                 // Safe fire-and-forget
                 _ = SwitchServiceAsync(_stdoutPath, _stderrPath);
 
-                StopMonitoring(false); // Pass false so we don't clear the console
+                StopMonitoring();
                 StartMonitoring();
             }
         }
@@ -185,12 +182,14 @@ namespace Servy.Manager.ViewModels
 
             InitTimer();
 
-            VisibleLines = CollectionViewSource.GetDefaultView(RawLines);
-            VisibleLines.Filter = (obj) =>
+            VisibleLines = new ListCollectionView(RawLines)
             {
-                if (string.IsNullOrWhiteSpace(ConsoleSearchText)) return true;
-                var line = obj as LogLine;
-                return line?.Text.IndexOf(ConsoleSearchText, StringComparison.OrdinalIgnoreCase) >= 0;
+                Filter = (obj) =>
+                {
+                    if (string.IsNullOrWhiteSpace(ConsoleSearchText)) return true;
+                    var line = obj as LogLine;
+                    return line?.Text.IndexOf(ConsoleSearchText, StringComparison.OrdinalIgnoreCase) >= 0;
+                }
             };
         }
 
@@ -223,58 +222,46 @@ namespace Servy.Manager.ViewModels
         }
 
         /// <inheritdoc/>
-        protected override async Task OnTickAsync()
+        protected override void ResetMonitoringState()
         {
-            var token = GetCurrentMonitoringToken();
+            ResetConsole();
+        }
 
-            var currentSelection = SelectedService;
-            if (currentSelection == null)
-            {
-                if (_hadSelectedService)
-                {
-                    ResetConsole();
-                    _hadSelectedService = false;
-                    CopyPidCommand?.RaiseCanExecuteChanged();
-                }
-                return;
-            }
-            _hadSelectedService = true;
-
-            var serviceDto = await _serviceRepository.GetServiceConsoleStateAsync(currentSelection?.Name, token);
+        /// <inheritdoc/>
+        protected override async Task ApplyTickAsync(ServiceItemBase selection, CancellationToken token)
+        {
+            var currentSelection = (ConsoleService)selection;
+            var serviceDto = await _serviceRepository.GetServiceConsoleStateAsync(currentSelection.Name, token);
             var stateSnapshot = serviceDto?.Clone() as ServiceConsoleStateDto;
 
             // Drop this tick if the user switched services while we were awaiting the DB call.
-            if (!ReferenceEquals(currentSelection, _selectedService)) return;
+            if (!ReferenceEquals(currentSelection, _selectedService) || token.IsCancellationRequested) return;
 
             if (stateSnapshot?.Pid == null)
             {
-                ResetConsole();
-                if (currentSelection != null)
+                if (currentSelection.Pid != null)      // only act on the running -> stopped transition
                 {
+                    ResetConsole();
                     currentSelection.Pid = null;
                     currentSelection.StdoutPath = null;
                     currentSelection.StderrPath = null;
+                    CopyPidCommand.RaiseCanExecuteChanged();
                 }
-                CopyPidCommand?.RaiseCanExecuteChanged();
                 return;
             }
 
-            if (currentSelection?.Pid != stateSnapshot.Pid
+            if (currentSelection.Pid != stateSnapshot.Pid
                 || !string.Equals(_stdoutPath, stateSnapshot.ActiveStdoutPath, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(_stderrPath, stateSnapshot.ActiveStderrPath, StringComparison.OrdinalIgnoreCase))
             {
-                if (currentSelection != null)
-                    currentSelection.Pid = stateSnapshot.Pid;
+                currentSelection.Pid = stateSnapshot.Pid;
                 _stdoutPath = stateSnapshot.ActiveStdoutPath;
                 _stderrPath = stateSnapshot.ActiveStderrPath;
-                if (currentSelection != null)
-                {
-                    currentSelection.StdoutPath = stateSnapshot.ActiveStdoutPath;
-                    currentSelection.StderrPath = stateSnapshot.ActiveStderrPath;
-                }
+                currentSelection.StdoutPath = stateSnapshot.ActiveStdoutPath;
+                currentSelection.StderrPath = stateSnapshot.ActiveStderrPath;
 
                 _ = SwitchServiceAsync(stateSnapshot.ActiveStdoutPath, stateSnapshot.ActiveStderrPath);
-                CopyPidCommand?.RaiseCanExecuteChanged();
+                CopyPidCommand.RaiseCanExecuteChanged();
             }
 
             SetPidText(currentSelection);
@@ -325,6 +312,10 @@ namespace Servy.Manager.ViewModels
             catch (OperationCanceledException)
             {
                 // Task was cancelled by a newer keystroke; exit gracefully.
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Failed to apply console filter.", ex);
             }
         }
 
@@ -388,21 +379,21 @@ namespace Servy.Manager.ViewModels
                 OnPropertyChanged(nameof(Pid));
 
                 // 2. Load History in parallel
-                int historyLimit = _maxLines / 2;
-
                 bool hasUniqueStderr = !string.IsNullOrWhiteSpace(stderrPath) &&
-                                       !string.Equals(stdoutPath, stderrPath, StringComparison.OrdinalIgnoreCase);
+                       !string.Equals(stdoutPath, stderrPath, StringComparison.OrdinalIgnoreCase);
+
+                int historyLimit = hasUniqueStderr ? _maxLines / 2 : _maxLines;
 
                 using (var stdoutHistoryTailer = new LogTailer())
                 using (var stderrHistoryTailer = new LogTailer())
                 {
                     var stdoutTask = !string.IsNullOrWhiteSpace(stdoutPath)
-                        ? stdoutHistoryTailer.GetHistoryAsync(stdoutPath, LogType.StdOut, historyLimit)
-                        : Task.FromResult<HistoryResult?>(null);
+                        ? stdoutHistoryTailer.GetHistoryAsync(stdoutPath, LogType.StdOut, historyLimit, cancellationToken: token)
+                        : Task.FromResult<HistoryResult>(null!);
 
                     var stderrTask = hasUniqueStderr
-                        ? stderrHistoryTailer.GetHistoryAsync(stderrPath, LogType.StdErr, historyLimit)
-                        : Task.FromResult<HistoryResult?>(null);
+                        ? stderrHistoryTailer.GetHistoryAsync(stderrPath, LogType.StdErr, historyLimit, cancellationToken: token)
+                        : Task.FromResult<HistoryResult>(null!);
 
                     // Wait for the necessary reads to complete
                     var results = await Task.WhenAll(stdoutTask, stderrTask);
@@ -440,6 +431,10 @@ namespace Servy.Manager.ViewModels
                             });
                         });
 
+                        // CRITICAL RE-CHECK: Validate session state again after returning from the threaded background sorting await block.
+                        // This prevents stale log data injections if a user switched selections while Task.Run was active.
+                        if (sessionId != _currentSessionId) return;
+
                         combinedHistory.Clear();
                         for (int i = 0; i < indexedHistory.Count; i++)
                         {
@@ -450,9 +445,12 @@ namespace Servy.Manager.ViewModels
                         RequestScroll?.Invoke(true);
                     }
 
+                    // CRITICAL RE-CHECK: Ensure session equilibrium before initializing new active log tailer handles.
+                    if (sessionId != _currentSessionId) return;
+
                     // 5. Start Live Tailing, passing the Session ID
                     // Start StdOut tailer if the result and path are valid
-                    if (outRes != null && !string.IsNullOrEmpty(stdoutPath))
+                    if (outRes != null && !string.IsNullOrWhiteSpace(stdoutPath))
                     {
                         StartLiveTail(stdoutPath, LogType.StdOut, outRes.Position, outRes.CreationTime, sessionId, token);
                     }
@@ -463,6 +461,14 @@ namespace Servy.Manager.ViewModels
                         StartLiveTail(stderrPath, LogType.StdErr, errRes.Position, errRes.CreationTime, sessionId, token);
                     }
                 }
+            }
+            catch (ObjectDisposedException)
+            {
+                Logger.Debug("Attempted to switch logs after disposal; ignoring.");
+            }
+            catch (OperationCanceledException)
+            {
+                Logger.Debug("Service switch cancelled (superseded or disposing); ignoring.");
             }
             catch (Exception ex)
             {
@@ -541,27 +547,24 @@ namespace Servy.Manager.ViewModels
             _ = tailer.RunFromPosition(path, type, pos, created, cancellationToken)
                 .ContinueWith(t =>
                 {
+                    var innerEx = t.Exception?.Flatten().InnerException;
+
+                    if (innerEx is ObjectDisposedException)
+                    {
+                        Logger.Debug("LogTailer disposed.");
+                        return;
+                    }
+
                     if (t.IsFaulted)
-                        Logger.Warn($"Log tailing failed: {t.Exception?.InnerException?.Message}");
+                    {
+                        Logger.Warn($"Log tailing failed: {innerEx?.Message}");
+                    }
                 }, TaskContinuationOptions.OnlyOnFaulted);
         }
 
         #endregion
 
         #region Public Methods
-
-        /// <summary>
-        /// Handles the specific logic for resetting the console view when 
-        /// monitoring is stopped with the clearView flag set to true.
-        /// </summary>
-        protected override void OnMonitoringStopped(bool clearView)
-        {
-            if (!clearView) return;
-
-            // Resets the console history and UI labels as required by 
-            // the console-specific implementation.
-            ResetConsole();
-        }
 
         /// <summary>
         /// Sets the selection active state, used to manage UI selection preservation during log updates.
@@ -591,37 +594,34 @@ namespace Servy.Manager.ViewModels
         /// </summary>
         protected override void Dispose(bool disposing)
         {
-            if (!_disposedValue)
+            if (Interlocked.Exchange(ref _isDisposed, 1) != 0)
             {
-                if (disposing)
+                return;
+            }
+
+            if (disposing)
+            {
+                // 1. Dispose active log tailers
+                StopActiveTailers();
+
+                // 2. Dispose Tailing CTS
+                var oldTailingCts = Interlocked.Exchange(ref _tailingCts, null);
+                if (oldTailingCts != null)
                 {
-                    // 1. Dispose active log tailers
-                    StopActiveTailers();
-
-                    // 2. Dispose Tailing CTS
-                    var oldTailingCts = Interlocked.Exchange(ref _tailingCts, null);
-                    if (oldTailingCts != null)
-                    {
-                        oldTailingCts.Cancel();
-                        oldTailingCts.Dispose();
-                    }
-
-                    // 3. Dispose Log Filter Debounce CTS
-                    var oldFilterCts = Interlocked.Exchange(ref _logFilterCts, null);
-                    if (oldFilterCts != null)
-                    {
-                        oldFilterCts.Cancel();
-                        oldFilterCts.Dispose();
-                    }
-
-                    // 4. Clear event invocation lists so the View can be collected even if it
-                    // forgot to unsubscribe (and so stray ticks don't reach a disposed View).
-                    RequestScroll = null;
+                    oldTailingCts.Cancel();
+                    oldTailingCts.Dispose();
                 }
 
-                base.Dispose(disposing);
-                _disposedValue = true;
+                // 3. Dispose Log Filter Debounce CTS
+                var oldFilterCts = Interlocked.Exchange(ref _logFilterCts, null);
+                if (oldFilterCts != null)
+                {
+                    oldFilterCts.Cancel();
+                    oldFilterCts.Dispose();
+                }
             }
+
+            base.Dispose(disposing);
         }
 
         #endregion

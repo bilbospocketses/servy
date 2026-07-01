@@ -1,5 +1,4 @@
 ﻿using Servy.Core.Helpers;
-using Servy.Core.Logging;
 using Servy.Core.Resources;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -75,7 +74,7 @@ namespace Servy.Core.UnitTests.Helpers
         }
 
         [Fact]
-        public void IsValidPath_TooLongPath_ThrowsAndReturnsFalse()
+        public void IsValidPath_TooLongPath_ReturnsFalse()
         {
             // Arrange
             var longFolder = new string('a', short.MaxValue);
@@ -89,19 +88,19 @@ namespace Servy.Core.UnitTests.Helpers
         }
 
         [Theory]
-        [InlineData(@"C:\Windows", true)]             // Standard drive-rooted absolute path
-        [InlineData(@"D:\Data\config.xml", true)]     // Alternate drive-rooted
+        [InlineData(@"C:\Windows", true)]              // Standard drive-rooted absolute path
+        [InlineData(@"D:\Data\config.xml", true)]      // Alternate drive-rooted
         [InlineData(@"\\Server\Share\Path", true)]    // UNC absolute path
-        [InlineData(@"C:/Windows", true)]             // Forward-slash separator (normalized by .NET)
-        [InlineData(@"\Windows\System32", false)]     // Rooted but relative to current drive
-        [InlineData(@"\Path", false)]                 // Rooted but relative to current drive
-        [InlineData(@"Relative\Path", false)]         // Fully relative
-        [InlineData(@"..\Parent", false)]             // Parent relative
-        [InlineData(@"\Servy\logs\app.log", false)]   // Was BUG: returned true
-        [InlineData(@"/var/log/foo.log", false)]      // Was BUG: returned true
-        [InlineData(@"C:", false)]                    // Rooted but relative to current directory on drive
-        [InlineData("", false)]                       // Empty
-        [InlineData(null, false)]                     // Null
+        [InlineData(@"C:/Windows", true)]              // Forward-slash separator (normalized by .NET)
+        [InlineData(@"\Windows\System32", false)]      // Rooted but relative to current drive
+        [InlineData(@"\Path", false)]                  // Rooted but relative to current drive
+        [InlineData(@"Relative\Path", false)]          // Fully relative
+        [InlineData(@"..\Parent", false)]              // Parent relative
+        [InlineData(@"\Servy\logs\app.log", false)]    // Was BUG: returned true
+        [InlineData(@"/var/log/foo.log", false)]       // Was BUG: returned true
+        [InlineData(@"C:", false)]                     // Rooted but relative to current directory on drive
+        [InlineData("", false)]                        // Empty
+        [InlineData(null, false)]                      // Null
         public void IsAbsolute_ShouldCorrectlyIdentifyPathTypes(string? input, bool expected)
         {
             // Act
@@ -128,16 +127,18 @@ namespace Servy.Core.UnitTests.Helpers
         }
 
         [Theory]
-        [InlineData("file.txt")]               // no directory part, returns false
-        [InlineData("C:\\file.txt")]           // directory is "C:\"
-        [InlineData("C:\\folder\\file.txt")]   // directory is "C:\folder"
-        [InlineData("C:/folder/file.txt")]     // with forward slashes
+        [InlineData("file.txt")]
+        [InlineData("folder\\file.txt")]
+        [InlineData("folder/file.txt")]
+        [InlineData("deeply\\nested\\subfolder\\file.txt")]
         public void CreateParentDirectory_DirectoryExistsOrCreated_ReturnsTrue(string filePath)
         {
             // Arrange
             var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
             Directory.CreateDirectory(tempDir);
 
+            // SANDBOX GUARD: By passing clean relative combinations, testFilePath is guaranteed 
+            // to resolve directly inside the safe, unique tempDir boundary layout.
             var testFilePath = Path.Combine(tempDir, filePath);
 
             try
@@ -149,7 +150,8 @@ namespace Servy.Core.UnitTests.Helpers
                 Assert.True(result);
 
                 var parentDir = Path.GetDirectoryName(testFilePath);
-                Assert.True(Directory.Exists(parentDir));
+                Assert.NotNull(parentDir);
+                Assert.True(Directory.Exists(parentDir), $"The expected parent directory container '{parentDir}' was not physically instantiated on disk.");
             }
             finally
             {
@@ -211,14 +213,14 @@ namespace Servy.Core.UnitTests.Helpers
         }
 
         [Theory]
-        [InlineData(null, "")]                           // Null input
-        [InlineData("", "")]                             // Empty string
-        [InlineData("abc", "abc")]                       // Simple text, nothing to escape
-        [InlineData(@"C:\Path", @"C:\Path")]             // Backslashes not before quotes - unchanged
+        [InlineData(null, "")]                               // Null input
+        [InlineData("", "")]                                 // Empty string
+        [InlineData("abc", "abc")]                           // Simple text, nothing to escape
+        [InlineData(@"C:\Path", @"C:\Path")]              // Backslashes not before quotes - unchanged
         [InlineData(@"C:\Path\""File", @"C:\Path\\""File")] // Backslash immediately before quote - doubled
         [InlineData(@"NoQuotesHere\", @"NoQuotesHere\")] // Trailing backslash - unchanged
-        [InlineData(@"\""", @"\\""")]                    // Single backslash + quote - doubled before quote
-        [InlineData(@"\\\""", @"\\\\\\""")]              // Multiple backslashes before quote
+        [InlineData(@"\""", @"\\""")]                     // Single backslash + quote - doubled before quote
+        [InlineData(@"\\\""", @"\\\\\\""")]               // Multiple backslashes before quote
         [InlineData(@"Mix\ed\\\""Case", @"Mix\ed\\\\\\""Case")] // Mixed case: normal + before quote
         [InlineData("abc\0def", @"abc\0def")]           // Contains null char -> replaced with literal "\0"
         public void EscapeBackslashes_ShouldEscapeCorrectly(string? input, string expected)
@@ -276,7 +278,8 @@ namespace Servy.Core.UnitTests.Helpers
             if (attrBuilder != null)
                 assemblyBuilder.SetCustomAttribute(attrBuilder);
 
-            // Override GetExecutingAssembly() by running inside the dynamic assembly
+            // Pass the freshly-built dynamic assembly explicitly so GetBuiltWithFramework
+            // reads the BuiltWithFramework metadata from it instead of the executing assembly.
             return InvokeInAssembly(assemblyBuilder);
         }
 
@@ -295,14 +298,14 @@ namespace Servy.Core.UnitTests.Helpers
 
 
         [Fact]
-        public void ReturnsUnknown_WhenAttributeMissing()
+        public void GetBuiltWithFramework_AttributeMissing_ReturnsUnknown()
         {
             var result = Run(null);
             Assert.Equal("Unknown", result);
         }
 
         [Fact]
-        public void ReturnsUnknown_WhenTfmIsNull()
+        public void GetBuiltWithFramework_TfmIsNull_ReturnsUnknown()
         {
             var result = Run((string?)null);
             Assert.Equal("Unknown", result);
@@ -311,28 +314,28 @@ namespace Servy.Core.UnitTests.Helpers
         [Theory]
         [InlineData("")]
         [InlineData("   ")]
-        public void ReturnsUnknown_WhenTfmEmptyOrWhitespace(string tfm)
+        public void GetBuiltWithFramework_TfmEmptyOrWhitespace_ReturnsUnknown(string tfm)
         {
             var result = Run(tfm);
             Assert.Equal("Unknown", result);
         }
 
         [Fact]
-        public void RemovesPlatformSuffix_AndFormatsCorrectly()
+        public void GetBuiltWithFramework_PlatformSuffix_IsRemoved()
         {
             var result = Run("net8.0-windows");
             Assert.Equal(".NET 8.0", result);
         }
 
         [Fact]
-        public void FormatsPlainNetTfm()
+        public void GetBuiltWithFramework_PlainNetTfm_IsFormatted()
         {
             var result = Run("net8.0");
             Assert.Equal(".NET 8.0", result);
         }
 
         [Fact]
-        public void ReturnsRawValue_WhenNotNetTfm()
+        public void GetBuiltWithFramework_NotNetTfm_ReturnsRawValue()
         {
             var result = Run("random");
             Assert.Equal("random", result);
@@ -370,7 +373,7 @@ namespace Servy.Core.UnitTests.Helpers
         /// </summary>
         [Theory]
         [InlineData(" MyService")] // Leading space
-        [InlineData("  MyService")] // Both
+        [InlineData("  MyService")] // Multiple leading spaces
         public void IsServiceNameValid_UntrimmedLeadingWhitespace_ReturnsTrimError(string input)
         {
             // Act
@@ -386,7 +389,7 @@ namespace Servy.Core.UnitTests.Helpers
         /// </summary>
         [Theory]
         [InlineData("MyService ")] // Trailing space
-        [InlineData("MyService  ")] // Both
+        [InlineData("MyService  ")] // Multiple trailing spaces
         public void IsServiceNameValid_UntrimmedTrailingWhitespace_ReturnsTrimError(string input)
         {
             // Act
@@ -612,7 +615,6 @@ namespace Servy.Core.UnitTests.Helpers
             // Arrange
             string tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
             string targetPath = Path.Combine(tempDir, "target.txt");
-            string tempPath = targetPath + ".tmp"; // Logic uses .tmp suffix
 
             try
             {
@@ -629,7 +631,11 @@ namespace Servy.Core.UnitTests.Helpers
                 // Assert
                 Assert.True(File.Exists(targetPath));
                 Assert.Equal("atomic-sync-test-48", File.ReadAllText(targetPath));
-                Assert.False(File.Exists(tempPath), "Temporary file should be cleaned up by the finally block");
+
+                // VACUOUS CHECK REFACTOR: Evaluate all matching staging remnants in the container directory 
+                // to verify that the core dynamic GUID-suffixed file format handles cleanup routines successfully.
+                var leftovers = Directory.GetFiles(tempDir, "*.tmp");
+                Assert.Empty(leftovers);
             }
             finally
             {
@@ -643,7 +649,6 @@ namespace Servy.Core.UnitTests.Helpers
             // Arrange
             string tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
             string targetPath = Path.Combine(tempDir, "target.txt");
-            string tempPath = targetPath + ".tmp";
 
             try
             {
@@ -662,7 +667,11 @@ namespace Servy.Core.UnitTests.Helpers
 
                 // CleanupTempFile is called in finally to ensure .tmp is removed
                 Assert.False(File.Exists(targetPath), "Target should not exist if move was never reached.");
-                Assert.False(File.Exists(tempPath), "Temp file should be cleaned up even on failure");
+
+                // Ensure no dynamically generated GUID staging targets 
+                // are leaked inside the scratch tracking folder when an unhandled execution exception triggers.
+                var leftovers = Directory.GetFiles(tempDir, "*.tmp");
+                Assert.Empty(leftovers);
             }
             finally
             {
@@ -684,7 +693,6 @@ namespace Servy.Core.UnitTests.Helpers
                 // Set read-only to test PrepareDestinationForMove logic
                 File.SetAttributes(targetPath, FileAttributes.ReadOnly);
 
-                // Act
                 // Act
                 Helper.WriteFileAtomic(targetPath, (Stream stream) =>
                 {
@@ -773,16 +781,6 @@ namespace Servy.Core.UnitTests.Helpers
                 if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
             }
         }
-
-        #endregion
-
-        #region Native Win32 Junction Helpers
-
-        // These minimal P/Invoke mechanisms ensure the unit tests run reliably in 
-        // headless test runners without executing high-overhead "cmd.exe /c mklink" shells.
-
-        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        private static extern bool CreateDirectory(string lpPathName, IntPtr lpSecurityAttributes);
 
         #endregion
 

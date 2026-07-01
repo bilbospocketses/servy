@@ -1,4 +1,4 @@
-#Requires -Version 3.0
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Monitors Servy error events in the Windows Application log and sends notification emails.
@@ -13,17 +13,16 @@
       4. Dispatching HTML-formatted notification emails using a robust .NET SMTP implementation.
       5. Providing fallback logging to the Event Log or local disk if email delivery fails.
 
-.PARAMETER None
-    No parameters are required. SMTP settings (Server, Port, From, To) are loaded 
-    from 'smtp-config.xml'. Credentials are managed via 'smtp-cred.xml'.
-
 .NOTES
     Author      : Akram El Assas
     Project     : Servy
     Repository  : https://github.com/aelassas/servy
     
+    No parameters are required. SMTP settings (Server, Port, From, To) are loaded 
+    from 'smtp-config.xml'. Credentials are managed via 'smtp-cred.xml'.
+
     Requirements:
-      - PowerShell 3.0 or later.
+      - PowerShell 5.1 or later.
       - 'smtp-config.xml' and 'smtp-cred.xml' must exist in the script directory.
 
     Setup (Secure Credentials):
@@ -44,6 +43,10 @@ $scriptDir = $PSScriptRoot
 $timestampFile = Join-Path $scriptDir "last-processed-email.dat"
 $fallbackLogFile = "ServyFailureEmail.log"
 
+# Central Sentinel Guard Domain Definition (RFC 2606 Reserved Domain).
+# Keeps the template independently modifiable and dynamically secures From/To fields.
+$DefaultPlaceholderDomain = "example.com"
+
 # Event ID Taxonomy (Refer to src/Servy.Core/Logging/EventIds.cs for updates)
 # 3000-3099: Core Errors | 3100-3199: Script Errors
 $EVENT_ID_DEPENDENCY_ERROR = 3104
@@ -51,34 +54,8 @@ $EVENT_ID_DEPENDENCY_ERROR = 3104
 # -------------------------------
 # 2. Imports
 # -------------------------------
-$requiredDependencies = @(
-    "Servy-Watermark.psm1",
-    "ServySecurity.ps1"
-)
-
-foreach ($dep in $requiredDependencies) {
-    $depPath = Join-Path $scriptDir $dep
-
-    if (-not (Test-Path $depPath)) {
-        $errorMsg = "Servy Notification Error: Required dependency not found at '$depPath'. Please ensure the file exists in the script directory."
-        
-        # 1. Attempt to log to Event Log for administrator visibility
-        try {
-            # Best-effort: the 'Servy' event source may not be registered, so guard with try/catch.
-            Write-EventLog -LogName Application -Source "Servy" -EventId $EVENT_ID_DEPENDENCY_ERROR `
-                -EntryType Error -Message $errorMsg -ErrorAction Stop
-        } catch {
-            # 2. Fallback to stderr if Event Log fails (or source isn't registered)
-            Write-Error $errorMsg
-        }
-
-        # 3. Exit with error code
-        exit 1
-    }
-
-    # File exists, proceed with dot-sourcing or importing
-    if ($dep -like "*.psm1") { Import-Module $depPath -Force } else { . $depPath }
-}
+$RequiredDependencies = @("Servy-Watermark.psm1", "ServySecurity.ps1")
+. (Join-Path $scriptDir "Import-ServyDependencies.ps1")
 
 function ConvertTo-HtmlSafe {
     <#
@@ -100,7 +77,7 @@ function ConvertTo-HtmlSafe {
 $configPath = Join-Path $scriptDir "smtp-config.xml"
 if (-not (Test-Path $configPath)) {
   $errorMsg = "ServyFailureEmail: Configuration file not found at '$configPath'. Stopping script."
-  Write-FallbackError -Message $errorMsg -scriptDir $scriptDir -FallbackFileName $fallbackLogFile
+  Write-FallbackError -Message $errorMsg -ScriptDir $scriptDir -FallbackFileName $fallbackLogFile
   exit 1
 }
 
@@ -108,7 +85,7 @@ try {
   [xml]$SmtpConfig = Get-Content $configPath -ErrorAction Stop
 } catch {
   $errorMsg = "ServyFailureEmail: Failed to parse XML configuration. Error: $($_.Exception.Message)"
-  Write-FallbackError -Message $errorMsg -scriptDir $scriptDir -FallbackFileName $fallbackLogFile
+  Write-FallbackError -Message $errorMsg -ScriptDir $scriptDir -FallbackFileName $fallbackLogFile
   exit 1
 }
 
@@ -131,8 +108,11 @@ function Send-NotificationEmail {
     .PARAMETER Body
         The pre-masked and HTML-encoded body content.
 
-    .PARAMETER scriptDir
-        The directory context for configuration and credential files.
+    .PARAMETER Config
+        The raw XML configuration tree structure containing active SMTP endpoint mappings.
+
+    .PARAMETER ScriptDir
+        The directory context for reading credential files and routing fallback logs.
         
     .PARAMETER FallbackLogFile
         The log file string to route fallback errors towards.
@@ -141,20 +121,21 @@ function Send-NotificationEmail {
   param (
     [string]$Subject,
     [string]$Body,
-    [string]$scriptDir,
+    [xml]$Config,
+    [string]$ScriptDir,
     [string]$FallbackLogFile
   )
 
-  # LOGIC: Masking is now performed by the caller before HTML encoding. 
+  # Masking is now performed by the caller before HTML encoding. 
   # This ensures the regex tail (?:"[^"]*"|'[^']*'|\S+) matches full quoted strings 
   # before quotes are converted to &quot; or &#39;.
 
   # --- HARDENED CONFIGURATION ACCESS ---
   
-  # 1. Check root structure
-  $configRoot = $SmtpConfig.SmtpConfig
+  # 1. Check root structure passed via parameters
+  $configRoot = $Config.SmtpConfig
   if ($null -eq $configRoot) {
-    Write-FallbackError -Message "ServyFailureEmail: Could not find <SmtpConfig> root element." -scriptDir $scriptDir -FallbackFileName $FallbackLogFile
+    Write-FallbackError -Message "ServyFailureEmail: Could not find <SmtpConfig> root element in configuration context." -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile
     return 'PermanentFailure'
   }
 
@@ -171,7 +152,7 @@ function Send-NotificationEmail {
   $smtpPort = if ([int]::TryParse($rawPort, [ref]$portRef)) { $portRef } else { 0 }
   
   # 3. Safe SSL Preference Resolution (Case-insensitive, defaults to true)
-  # LOGIC: Casts to string and trims whitespace to prevent parsing errors. 
+  # Casts to string and trims whitespace to prevent parsing errors. 
   # Uses case-insensitive regex '(?i)' to match "false", "FALSE", "False", or "0".
   $useSsl = if ($rawUseSsl  -match '^(?i)(false|0)$') { $false }        else { $true }
 
@@ -179,32 +160,26 @@ function Send-NotificationEmail {
   $timeoutRef = 0
   $timeout = if ([int]::TryParse($rawTimeout, [ref]$timeoutRef)) { $timeoutRef } else { 30000 }
 
-  $credPath = Join-Path $scriptDir "smtp-cred.xml"
+  $credPath = Join-Path $ScriptDir "smtp-cred.xml"
   $emailRegex = '^[^@\s]+@[^@\s]+\.[^@\s]+$' # Definition of the single address format validation rule
 
   # --- VALIDATION GATE (Permanent Failures) ---
   
   # Check for missing essential fields
   if ([string]::IsNullOrWhiteSpace($smtpServer) -or [string]::IsNullOrWhiteSpace($from) -or [string]::IsNullOrWhiteSpace($to)) {
-    Write-FallbackError -Message "ServyFailureEmail: Incomplete configuration. Missing Server, From, or To." -scriptDir $scriptDir -FallbackFileName $FallbackLogFile
+    Write-FallbackError -Message "ServyFailureEmail: Incomplete configuration. Missing Server, From, or To." -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile
     return 'PermanentFailure'
   }
 
   # Check for invalid port
   if ($smtpPort -le 0 -or $smtpPort -gt 65535) {
-    Write-FallbackError -Message "ServyFailureEmail: Invalid or missing Port ($smtpPort) in smtp-config.xml." -scriptDir $scriptDir -FallbackFileName $FallbackLogFile
-    return 'PermanentFailure'
-  }
-
-  # Default placeholder check
-  if ($smtpServer -eq "smtp.example.com") {
-    Write-FallbackError -Message "ServyFailureEmail: SMTP Server is still set to default placeholder. Email skipped." -scriptDir $scriptDir -FallbackFileName $FallbackLogFile
+    Write-FallbackError -Message "ServyFailureEmail: Invalid or missing Port ($smtpPort) in smtp-config.xml." -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile
     return 'PermanentFailure'
   }
 
   # Email format checks (Prevent .NET ArgumentException/FormatException)
   if ($from -notmatch $emailRegex) {
-    Write-FallbackError -Message "ServyFailureEmail: Invalid 'From' email format ($from) in smtp-config.xml." -scriptDir $scriptDir -FallbackFileName $FallbackLogFile
+    Write-FallbackError -Message "ServyFailureEmail: Invalid 'From' email format ($from) in smtp-config.xml." -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile
     return 'PermanentFailure'
   }
 
@@ -213,20 +188,32 @@ function Send-NotificationEmail {
   $toList = $to -split '\s*[,;]\s*' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 
   if ($toList.Count -eq 0) {
-      Write-FallbackError -Message "ServyFailureEmail: The 'To' field evaluates to empty in smtp-config.xml." -scriptDir $scriptDir -FallbackFileName $FallbackLogFile
+      Write-FallbackError -Message "ServyFailureEmail: The 'To' field evaluates to empty in smtp-config.xml." -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile
       return 'PermanentFailure'
   }
 
   # Validate each split address block individually against the single-address regex gate
   foreach ($addr in $toList) {
       if ($addr -notmatch $emailRegex) {
-          Write-FallbackError -Message "ServyFailureEmail: Invalid 'To' email format ($addr) in smtp-config.xml. Multi-recipient lists must be separated by commas or semicolons." -scriptDir $scriptDir -FallbackFileName $FallbackLogFile
+          Write-FallbackError -Message "ServyFailureEmail: Invalid 'To' email format ($addr) in smtp-config.xml. Multi-recipient lists must be separated by commas or semicolons." -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile
           return 'PermanentFailure'
       }
   }
 
+  # Hardened domain verification derived from global $DefaultPlaceholderDomain variable scope.
+  # Polymorphically screens Server, From, and sub-recipient properties against unconfigured templates.
+  # Adjusted From and To patterns to support matching both standard domain contexts and sub-domain structures after the '@' separator.
+  $isPlaceholderServer = $smtpServer -eq $DefaultPlaceholderDomain -or $smtpServer -like "*.$DefaultPlaceholderDomain"
+  $isPlaceholderFrom   = $from -like "*@$DefaultPlaceholderDomain" -or $from -like "*@*.$DefaultPlaceholderDomain"
+  $isPlaceholderTo     = $toList | Where-Object { $_ -like "*@$DefaultPlaceholderDomain" -or $_ -like "*@*.$DefaultPlaceholderDomain" }
+
+  if ($isPlaceholderServer -or $isPlaceholderFrom -or $isPlaceholderTo) {
+    Write-FallbackError -Message "ServyFailureEmail: SMTP pipeline fields are still using default placeholder domain references ($DefaultPlaceholderDomain). Email skipped." -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile
+    return 'PermanentFailure'
+  }
+
   if (-not (Test-Path $credPath)) {
-    Write-FallbackError -Message "ServyFailureEmail: Credential file not found at '$credPath'. Skipping email." -scriptDir $scriptDir -FallbackFileName $FallbackLogFile
+    Write-FallbackError -Message "ServyFailureEmail: Credential file not found at '$credPath'. Skipping email." -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile
     return 'PermanentFailure'
   }
 
@@ -267,7 +254,7 @@ function Send-NotificationEmail {
   } catch [System.Security.Cryptography.CryptographicException] {
       # The credential file exists but cannot be decrypted (e.g., scheduled task running as wrong user)
       $errorMsg = "ServyFailureEmail: Failed to decrypt credentials. Ensure the task runs as the user who created smtp-cred.xml. Error: $($_.Exception.Message)"
-      Write-FallbackError -Message $errorMsg -scriptDir $scriptDir -FallbackFileName $FallbackLogFile
+      Write-FallbackError -Message $errorMsg -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile
       return 'PermanentFailure'
   } catch [System.Net.Mail.SmtpException] {
       # SMTP-level errors: Apply granular classification based on RFC 5321 codes.
@@ -285,7 +272,7 @@ function Send-NotificationEmail {
       $errorMsg = "ServyFailureEmail: SMTP $status sending to $to. Error: $($_.Exception.Message)"
       
       # Record to fallback logs (disk and Application Event Log) before deciding exit status.
-      Write-FallbackError -Message $errorMsg -scriptDir $scriptDir -FallbackFileName $FallbackLogFile    
+      Write-FallbackError -Message $errorMsg -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile    
       
       # Return status determines if the watermark advances.
       # TransientFailure: Queue processing halts to wait for system recovery.
@@ -294,18 +281,18 @@ function Send-NotificationEmail {
       return 'PermanentFailure'
   } catch [System.FormatException] {
       # Malformed e-mail address slipped past validation - never going to succeed.
-      Write-FallbackError -Message "ServyFailureEmail: Permanent format failure: $($_.Exception.Message)" -scriptDir $scriptDir -FallbackFileName $FallbackLogFile
+      Write-FallbackError -Message "ServyFailureEmail: Permanent format failure: $($_.Exception.Message)" -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile
       return 'PermanentFailure'
   } catch [System.IO.IOException], [System.Net.WebException], [System.Net.Sockets.SocketException], [System.TimeoutException] {
       # ROBUSTNESS: Explicitly isolate known transient/retryable physical infrastructure and network faults.
       $errorMsg = "ServyFailureEmail: Transient network I/O failure to $to. Error: $($_.Exception.Message)"
-      Write-FallbackError -Message $errorMsg -scriptDir $scriptDir -FallbackFileName $FallbackLogFile
+      Write-FallbackError -Message $errorMsg -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile
       return 'TransientFailure'
   } catch {
       # ROBUSTNESS: Treat unrecognized structural errors (e.g. ArgumentException on CRLF header injection) 
       # as permanent failures to ensure a corrupted log payload cannot block the entire pipeline execution loop.
       $errorMsg = "ServyFailureEmail: Unexpected permanent script failure to $to. Type: $($_.Exception.GetType().FullName). Error: $($_.Exception.Message)"
-      Write-FallbackError -Message $errorMsg -scriptDir $scriptDir -FallbackFileName $FallbackLogFile
+      Write-FallbackError -Message $errorMsg -ScriptDir $ScriptDir -FallbackFileName $FallbackLogFile
       return 'PermanentFailure'
   } finally {
       if ($null -ne $mailMessage) { $mailMessage.Dispose() }
@@ -335,14 +322,14 @@ foreach ($evt in $eventsToProcess) {
   $parsed = ConvertFrom-ServyEventMessage -Message $evt.Message
 
   # 1. MASKING (Stage 1: Plain Text)
-  # LOGIC: We mask the raw strings before any HTML encoding occurs.
+  # We mask the raw strings before any HTML encoding occurs.
   # This ensures the regex successfully captures PASSWORD="my secret token" 
   # before it becomes PASSWORD=&quot;my secret token&quot;
   $maskedLogText = Protect-SensitiveString -Text $parsed.LogText
   $maskedServiceName = Protect-SensitiveString -Text $parsed.ServiceName
 
   # 2. ENCODING (Stage 2: Markup Preparation)
-  # Logic: Now that secrets are replaced with asterisks, we can safely convert 
+  # Now that secrets are replaced with asterisks, we can safely convert 
   # any remaining metacharacters to HTML entities.
   $safeLogText = ConvertTo-HtmlSafe -Text $maskedLogText
   $safeServiceName = ConvertTo-HtmlSafe -Text $maskedServiceName
@@ -352,7 +339,7 @@ foreach ($evt in $eventsToProcess) {
   $subject = "Servy - $($parsed.ServiceName) Failure"
   $subject = Protect-SensitiveString -Text $subject
   
-  # ROBUSTNESS FIX: Sanitise the subject string value of CR/LF injection characters
+  # ROBUSTNESS: Sanitise the subject string value of CR/LF injection characters
   # explicitly to block .NET ArgumentException errors at the MailMessage property setter stage.
   $subject = $subject -replace "[\r\n]", ' '
 
@@ -363,8 +350,8 @@ foreach ($evt in $eventsToProcess) {
   # Basic HTML formatting (newlines to breaks)
   $htmlBody = $body -replace "`r?`n", "<br>"
     
-  # Attempt to send the email
-  $sendStatus = Send-NotificationEmail -Subject $subject -Body $htmlBody -scriptDir $scriptDir -FallbackLogFile $fallbackLogFile
+  # Attempt to send the email with explicit configuration encapsulation mapping
+  $sendStatus = Send-NotificationEmail -Subject $subject -Body $htmlBody -Config $SmtpConfig -ScriptDir $scriptDir -FallbackLogFile $fallbackLogFile
   
   switch ($sendStatus) {
       'Success' {

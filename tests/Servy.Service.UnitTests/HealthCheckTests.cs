@@ -4,23 +4,21 @@ using Servy.Core.Enums;
 using Servy.Core.EnvironmentVariables;
 using Servy.Core.Helpers;
 using Servy.Core.Logging;
-using Servy.Service.Helpers;
 using Servy.Service.ProcessManagement;
 using Servy.Service.StreamWriters;
 using Servy.Service.Timers;
 using Servy.Service.Validation;
+using Servy.Testing;
 using IServiceHelper = Servy.Service.Helpers.IServiceHelper;
 
 namespace Servy.Service.UnitTests
 {
     public class HealthCheckTests
     {
-        private readonly Mock<IProcessHelper> _mockProcessHelper;
         private readonly Mock<IProcessKiller> _mockProcessKiller;
 
         public HealthCheckTests()
         {
-            _mockProcessHelper = new Mock<IProcessHelper>();
             _mockProcessKiller = new Mock<IProcessKiller>();
         }
 
@@ -51,7 +49,6 @@ namespace Servy.Service.UnitTests
                 mockProcessFactory.Object,
                 mockPathValidator.Object,
                 mockServiceRepository.Object,
-                _mockProcessHelper.Object,
                 _mockProcessKiller.Object
                 );
         }
@@ -86,7 +83,7 @@ namespace Servy.Service.UnitTests
             // Verify the internal counter incremented
             Assert.Equal(1, service.GetFailedChecks());
 
-            // Verify the log matches the new unified format "Health check failed (1/3)."
+            // Log format: "Health check failed (failedChecks/maxFailedChecks)."
             logger.Verify(l => l.Warn(It.Is<string>(s =>
                 s.Contains("Health check failed") && s.Contains("(1/3)")), It.IsAny<Exception>()),
                 Times.Once);
@@ -146,7 +143,7 @@ namespace Servy.Service.UnitTests
         [InlineData(RecoveryAction.RestartService)]
         [InlineData(RecoveryAction.RestartComputer)]
         [InlineData(RecoveryAction.None)]
-        public void CheckHealth_RecoveryActions_ExecuteExpectedLogic_NoLogs(RecoveryAction action)
+        public void CheckHealth_RecoveryActions_ExecuteExpectedLogic(RecoveryAction action)
         {
             // Arrange
             var service = CreateService(
@@ -157,24 +154,6 @@ namespace Servy.Service.UnitTests
                 out var processFactory,
                 out var pathValidator,
                 out var serviceRepository);
-
-            // Setup mocks for helper methods (just verify calls, no real implementations or logs)
-            helper.Setup(h =>
-                h.RestartProcess(
-                    It.IsAny<IProcessWrapper>(),
-                    It.IsAny<Action<string, string, string, List<EnvironmentVariable>, CancellationToken>>(),
-                    It.IsAny<string>(),
-                    It.IsAny<string>(),
-                    It.IsAny<string>(),
-                    It.IsAny<List<EnvironmentVariable>>(),
-                    It.IsAny<IServyLogger>(),
-                    It.IsAny<int>(),
-                    It.IsAny<CancellationToken>()))
-                .Verifiable();
-
-            helper.Setup(h => h.RestartService(It.IsAny<IServyLogger>(), It.IsAny<string>())).Verifiable();
-
-            helper.Setup(h => h.RestartComputer(It.IsAny<IServyLogger>())).Verifiable();
 
             var mockProcess = new Mock<IProcessWrapper>();
             mockProcess.Setup(p => p.HasExited).Returns(true);
@@ -212,7 +191,7 @@ namespace Servy.Service.UnitTests
                             It.IsAny<CancellationToken>()), Times.Once);
                         break;
                     case RecoveryAction.RestartService:
-                        helper.Verify(h => h.RestartService(It.IsAny<IServyLogger>(), service.ServiceName), Times.Once);
+                        helper.Verify(h => h.RestartService(service.ServiceName, It.IsAny<IServyLogger>()), Times.Once);
                         break;
                     case RecoveryAction.RestartComputer:
                         helper.Verify(h => h.RestartComputer(It.IsAny<IServyLogger>()), Times.Once);
@@ -281,7 +260,6 @@ namespace Servy.Service.UnitTests
             service.SetRecoveryAction(RecoveryAction.RestartProcess);
             service.SetFailedChecks(0);
 
-            // Act
             int calls = 20;
             var startingGun = new TaskCompletionSource<bool>();
             var tasks = new List<Task>();
@@ -297,24 +275,24 @@ namespace Servy.Service.UnitTests
                 }, TestContext.Current.CancellationToken));
             }
 
+            // Act
             // FIRE THE STARTING GUN! 
             // This releases all 20 tasks simultaneously, guaranteeing maximum contention
             // and a true test of the semaphore, regardless of the CPU core count.
             startingGun.SetResult(true);
 
             // Wait for the recovery to be triggered by the background threads. 
-            // Increased to 15 seconds to prevent timeouts on slow GitHub CI runners.
-            var completedTask = await Task.WhenAny(recoveryTriggered.Task, Task.Delay(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken));
+            var completedTask = await Task.WhenAny(recoveryTriggered.Task, Task.Delay(TestTimeouts.CiGenerous, TestContext.Current.CancellationToken));
 
             if (completedTask != recoveryTriggered.Task)
             {
                 Assert.Fail("Timeout: RestartProcess was never called. The CI Thread Pool might be starved.");
             }
 
-            // CRITICAL: GitHub CI runners are slow. Even though recovery triggered, the remaining 17 
-            // concurrent calls need ample time to wake up, process the healthy state, and exit gracefully.
-            // 2000ms ensures the 2-core runner finishes its queue before we hit the Mock.Verify.
-            await Task.Delay(2000, TestContext.Current.CancellationToken);
+            // DETRMINISTIC SYNCHRONIZATION POINT: 
+            // Instead of counting on an arbitrary sleep to give the remaining workers room to finish,
+            // we await all tasks to safely drop out of the pool threads before processing verifications.
+            await Task.WhenAll(tasks);
 
             // Assert
             logger.Verify(l => l.Warn(It.Is<string>(s => s.Contains("Health check failed")), It.IsAny<Exception>()), Times.Exactly(3));
@@ -324,6 +302,5 @@ namespace Servy.Service.UnitTests
                           It.IsAny<List<EnvironmentVariable>>(), It.IsAny<IServyLogger>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
                           Times.Once);
         }
-
     }
 }

@@ -11,7 +11,8 @@ using System.Windows.Threading;
 namespace Servy.UI.Design
 {
     /// <summary>
-    /// Provides a no-op implementation of process-related utility methods for XAML design-time support.
+    /// Provides a concrete <see cref="ProcessHelper"/> subtype used purely so the designer can instantiate a stand-in 
+    /// (the real metric methods are simply never invoked at design time).
     /// </summary>
     /// <remarks>
     /// This class inherits from <see cref="ProcessHelper"/> to satisfy dependency requirements 
@@ -63,16 +64,16 @@ namespace Servy.UI.Design
         public Task<ServiceDto?> GetByNameAsync(string? name, bool decrypt = true, CancellationToken cancellationToken = default)
             => Task.FromResult<ServiceDto?>(null);
 
-        public Task<int?> GetServicePidAsync(string? serviceName, CancellationToken cancellationToken = default)
+        public Task<int?> GetServicePidAsync(string? name, CancellationToken cancellationToken = default)
             => Task.FromResult<int?>(null);
 
-        public Task<ServiceConsoleStateDto?> GetServiceConsoleStateAsync(string? serviceName, CancellationToken cancellationToken = default)
+        public Task<ServiceConsoleStateDto?> GetServiceConsoleStateAsync(string? name, CancellationToken cancellationToken = default)
             => Task.FromResult<ServiceConsoleStateDto?>(null);
 
         public Task<IEnumerable<ServiceDto>> GetAllAsync(bool decrypt = true, CancellationToken cancellationToken = default)
             => Task.FromResult(Enumerable.Empty<ServiceDto>());
 
-        public Task<IEnumerable<ServiceDto>> SearchAsync(string keyword, bool decrypt = true, CancellationToken cancellationToken = default)
+        public Task<IEnumerable<ServiceDto>> SearchAsync(string? keyword, bool decrypt = true, CancellationToken cancellationToken = default)
             => Task.FromResult(Enumerable.Empty<ServiceDto>());
 
         public Task<string> ExportXmlAsync(string? name, CancellationToken cancellationToken = default)
@@ -130,7 +131,7 @@ namespace Servy.UI.Design
         /// <summary>
         /// Returns a default "Stopped" status for design-time display.
         /// </summary>
-        public ServiceControllerStatus GetServiceStatus(string? serviceName, CancellationToken cancellationToken = default)
+        public ServiceControllerStatus? GetServiceStatus(string? serviceName, CancellationToken cancellationToken = default)
             => ServiceControllerStatus.Stopped;
 
         /// <summary>
@@ -141,7 +142,7 @@ namespace Servy.UI.Design
         /// <summary>
         /// Returns Manual startup type as a safe default for design-time.
         /// </summary>
-        public ServiceStartType? GetServiceStartupType(string? serviceName, CancellationToken cancellationToken = default)
+        public ServiceStartType GetServiceStartupType(string? serviceName, CancellationToken cancellationToken = default)
             => ServiceStartType.Manual;
 
         /// <summary>
@@ -164,7 +165,7 @@ namespace Servy.UI.Design
         /// <summary>
         /// No-op implementation for opening documentation with a specific caption.
         /// </summary>
-        public Task OpenDocumentation(string caption)
+        public Task OpenDocumentationAsync(string caption)
         {
             return Task.CompletedTask;
         }
@@ -172,7 +173,7 @@ namespace Servy.UI.Design
         /// <summary>
         /// No-op implementation for update checks triggered by the designer.
         /// </summary>
-        public Task CheckUpdates(string caption)
+        public Task CheckUpdatesAsync(string caption)
         {
             return Task.CompletedTask;
         }
@@ -180,7 +181,7 @@ namespace Servy.UI.Design
         /// <summary>
         /// No-op implementation for the about dialog preview.
         /// </summary>
-        public Task OpenAboutDialog(string about, string caption)
+        public Task OpenAboutDialogAsync(string about, string caption)
         {
             return Task.CompletedTask;
         }

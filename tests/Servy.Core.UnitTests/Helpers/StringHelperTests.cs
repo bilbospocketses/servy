@@ -17,7 +17,7 @@ namespace Servy.Core.UnitTests.Helpers
         [InlineData("line1\nline2;line3", "line1;line2;line3")]
         [InlineData("line1\r\nline2\nline3\rline4", "line1;line2;line3;line4")]
         [InlineData("VAR1=value1\r\nVAR2=value2\nVAR3=value3\rVAR4=value4", "VAR1=value1;VAR2=value2;VAR3=value3;VAR4=value4")]
-        public void NormalizeString_ShouldHandleLineBreaksAndEscapeSemicolons(string? input, string expected)
+        public void NormalizeString_ReplacesLineBreaksWithSemicolons(string? input, string expected)
         {
             var result = StringHelper.NormalizeString(input);
             Assert.Equal(expected, result);
@@ -96,10 +96,10 @@ namespace Servy.Core.UnitTests.Helpers
         }
 
         [Fact]
-        public void FormatServiceDependencies_ShouldReturnNull_WhenInputIsNull()
+        public void FormatServiceDependencies_ShouldReturnEmpty_WhenInputIsNull()
         {
-            var result = StringHelper.FormatServiceDependencies(null!);
-            Assert.Empty(result!);
+            var result = StringHelper.FormatServiceDependencies(null);
+            Assert.Empty(result);
         }
 
         [Theory]
@@ -113,7 +113,7 @@ namespace Servy.Core.UnitTests.Helpers
         }
 
         [Fact]
-        public void Escape_NullInput_ReturnsEmptyString_UsingReflection()
+        public void Escape_NullInput_ReturnsEmptyString()
         {
             // Act
             var result = StringHelper.Escape(null!);
@@ -123,7 +123,7 @@ namespace Servy.Core.UnitTests.Helpers
         }
 
         [Fact]
-        public void FormatEnvirnomentVariables_ShouldEscapeSpecialCharactersCorrectly()
+        public void FormatEnvironmentVariables_ShouldEscapeSpecialCharactersCorrectly()
         {
             // Arrange
             // Each variable tests one or more escape sequences:
@@ -133,6 +133,7 @@ namespace Servy.Core.UnitTests.Helpers
             // - VAR4: '"' in value
             // - VAR5: '\' in value
             // - VAR6: combinations of multiple escaped chars
+            // - VAR7: escaped '=' in the KEY (not the value)
             var rawVars = string.Join(";", new[]
             {
                 "VAR1=val1",

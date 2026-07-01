@@ -14,6 +14,7 @@ namespace Servy.Core.Services
             => NativeMethods.OpenSCManager(machineName, databaseName, dwAccess);
 
         /// <inheritdoc />
+        [ExcludeFromCodeCoverage]
         public void EnsureLogOnAsServiceRight(string accountName)
             => LogonAsServiceGrant.Ensure(accountName);
 
@@ -60,11 +61,6 @@ namespace Servy.Core.Services
 
         /// <inheritdoc />
         [ExcludeFromCodeCoverage]
-        public bool CloseServiceHandle(IntPtr hSCObject)
-            => NativeMethods.CloseServiceHandle(hSCObject);
-
-        /// <inheritdoc />
-        [ExcludeFromCodeCoverage]
         public bool ControlService(SafeServiceHandle hService, int dwControl, ref SERVICE_STATUS lpServiceStatus)
             => NativeMethods.ControlService(hService, dwControl, ref lpServiceStatus);
 
@@ -99,17 +95,17 @@ namespace Servy.Core.Services
 
         /// <inheritdoc />
         [ExcludeFromCodeCoverage]
-        public bool ChangeServiceConfig2(SafeServiceHandle hService, int dwInfoLevel, ref SERVICE_DESCRIPTION lpInfo)
+        public bool ChangeServiceConfig2(SafeServiceHandle hService, uint dwInfoLevel, ref SERVICE_DESCRIPTION lpInfo)
             => NativeMethods.ChangeServiceConfig2(hService, dwInfoLevel, ref lpInfo);
 
         /// <inheritdoc />
         [ExcludeFromCodeCoverage]
-        public bool ChangeServiceConfig2(SafeServiceHandle hService, int dwInfoLevel, ref SERVICE_DELAYED_AUTO_START_INFO lpInfo)
+        public bool ChangeServiceConfig2(SafeServiceHandle hService, uint dwInfoLevel, ref SERVICE_DELAYED_AUTO_START_INFO lpInfo)
             => NativeMethods.ChangeServiceConfig2(hService, dwInfoLevel, ref lpInfo);
 
         /// <inheritdoc />
         [ExcludeFromCodeCoverage]
-        public bool ChangeServiceConfig2(SafeServiceHandle hService, int dwInfoLevel, IntPtr lpInfo)
+        public bool ChangeServiceConfig2(SafeServiceHandle hService, uint dwInfoLevel, IntPtr lpInfo)
             => NativeMethods.ChangeServiceConfig2(hService, dwInfoLevel, lpInfo);
 
         // --- QueryServiceConfig Overloads ---
@@ -136,8 +132,8 @@ namespace Servy.Core.Services
             uint dwInfoLevel,
             ref SERVICE_DELAYED_AUTO_START_INFO lpBuffer,
             int cbBufSize,
-            ref int pcbBytesNeeded)
-            => NativeMethods.QueryServiceConfig2(hService, dwInfoLevel, ref lpBuffer, cbBufSize, ref pcbBytesNeeded);
+            out int pcbBytesNeeded)
+            => NativeMethods.QueryServiceConfig2(hService, dwInfoLevel, ref lpBuffer, cbBufSize, out pcbBytesNeeded);
 
         /// <inheritdoc />
         [ExcludeFromCodeCoverage]
@@ -146,31 +142,23 @@ namespace Servy.Core.Services
             uint dwInfoLevel,
             IntPtr lpBuffer,
             int cbBufSize,
-            ref int pcbBytesNeeded)
+            out int pcbBytesNeeded)
             => NativeMethods.QueryServiceConfig2(
                 hService,
                 dwInfoLevel,
                 lpBuffer,
                 cbBufSize,
-                ref pcbBytesNeeded);
+                out pcbBytesNeeded);
 
         /// <inheritdoc />
         public IEnumerable<WindowsServiceInfo> GetServices()
         {
-            var controllers = ServiceController.GetServices();
-            try
+            // DRY Unification: Outsource handle tracking and extraction mechanics to the central mapping pipeline
+            return ServiceControllerProvider.MapAndDisposeServices(s => new WindowsServiceInfo
             {
-                return controllers.Select(s => new WindowsServiceInfo
-                {
-                    ServiceName = s.ServiceName,
-                    DisplayName = s.DisplayName
-                }).ToList();
-            }
-            finally
-            {
-                foreach (var sc in controllers)
-                    sc.Dispose();
-            }
+                ServiceName = s.ServiceName,
+                DisplayName = s.DisplayName
+            });
         }
     }
 }

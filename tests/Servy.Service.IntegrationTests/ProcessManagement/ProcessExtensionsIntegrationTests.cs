@@ -1,4 +1,6 @@
 ﻿using Servy.Service.ProcessManagement;
+using Servy.Testing;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
 
@@ -9,7 +11,7 @@ namespace Servy.Service.IntegrationTests.ProcessManagement
     /// These tests execute real OS processes and evaluate native Toolhelp32 enumerations.
     /// </summary>
     [CollectionDefinition("ProcessExtensionsIntegrationTests", DisableParallelization = true)]
-    public class ProcessExtensionsIntegrationTestsCollection : ICollectionFixture<object>
+    public class ProcessExtensionsIntegrationTestsCollection
     {
         // Enforces strict sequential isolation across the execution suite
     }
@@ -24,9 +26,13 @@ namespace Servy.Service.IntegrationTests.ProcessManagement
         [Fact]
         public void Format_ActiveProcess_ReturnsProcessNameAndId()
         {
+            // Arrange
             using (var currentProcess = Process.GetCurrentProcess())
             {
+                // Act
                 string formatted = currentProcess.Format();
+
+                // Assert
                 Assert.Contains(currentProcess.ProcessName, formatted);
                 Assert.Contains(currentProcess.Id.ToString(), formatted);
             }
@@ -38,6 +44,7 @@ namespace Servy.Service.IntegrationTests.ProcessManagement
             // Arrange - Use a mock of a non-sealed component pattern or an uninitialized Process model
             var process = new Process();
 
+            // Act
             // Forcing an operations execution onto an unallocated Process object native handle
             // throws an internal Win32Exception or InvalidOperationException depending on runtime state.
             string formatted = process.Format();
@@ -56,14 +63,20 @@ namespace Servy.Service.IntegrationTests.ProcessManagement
         [InlineData(0)]
         public void GetChildren_InvalidPid_ReturnsEmptyList(int invalidPid)
         {
+            // Arrange & Act
             var children = ProcessExtensions.GetChildren(invalidPid, DateTime.Now);
+
+            // Assert
             Assert.Empty(children);
         }
 
         [Fact]
         public void GetChildren_InvalidStartTime_ReturnsEmptyList()
         {
+            // Arrange & Act
             var children = ProcessExtensions.GetChildren(123, DateTime.MinValue);
+
+            // Assert
             Assert.Empty(children);
         }
 
@@ -72,9 +85,11 @@ namespace Servy.Service.IntegrationTests.ProcessManagement
         [InlineData(0)]
         public void GetAllDescendants_InvalidParameters_ReturnsEmptyList(int invalidPid)
         {
+            // Arrange & Act
             var descendantsNullTime = ProcessExtensions.GetAllDescendants(invalidPid, DateTime.MinValue);
             var descendantsValidTime = ProcessExtensions.GetAllDescendants(invalidPid, DateTime.Now);
 
+            // Assert
             Assert.Empty(descendantsNullTime);
             Assert.Empty(descendantsValidTime);
         }
@@ -82,16 +97,21 @@ namespace Servy.Service.IntegrationTests.ProcessManagement
         [Fact]
         public void GetAllDescendants_InvalidStartTime_ReturnsEmptyList()
         {
+            // Arrange & Act
             var descendants = ProcessExtensions.GetAllDescendants(1, DateTime.MinValue);
+
+            // Assert
             Assert.Empty(descendants);
         }
 
         [Fact]
         public void GetChildren_ValidParent_ReturnsOnlyImmediateChildren()
         {
+            // Arrange
             var root = SpawnProcessTree(1);
             List<Process> children = new List<Process>();
 
+            // Act
             try
             {
                 children = WaitForProcessName(root, "powershell", ProcessExtensions.GetChildren);
@@ -99,8 +119,9 @@ namespace Servy.Service.IntegrationTests.ProcessManagement
                 var targetProcess = children.FirstOrDefault(p =>
                     p.ProcessName.Equals("powershell", StringComparison.OrdinalIgnoreCase));
 
+                // Assert
                 Assert.NotNull(targetProcess);
-                Assert.Equal(root.Id, GetParentPidViaNative(targetProcess));
+                Assert.Equal(root.Id, GetParentPidViaWmi(targetProcess));
             }
             finally
             {
@@ -111,9 +132,11 @@ namespace Servy.Service.IntegrationTests.ProcessManagement
         [Fact]
         public void GetAllDescendants_ValidParent_ReturnsEntireTree()
         {
+            // Arrange
             var root = SpawnProcessTree(2);
             List<Process> descendants = new List<Process>();
 
+            // Act
             try
             {
                 bool treeStabilized = SpinWait.SpinUntil(() =>
@@ -123,19 +146,21 @@ namespace Servy.Service.IntegrationTests.ProcessManagement
                     foreach (var d in descendants) d.Dispose();
                     descendants = ProcessExtensions.GetAllDescendants(root.Id, root.StartTime);
 
-                    int psCount = descendants.Count(d => d.ProcessName.Equals("powershell", StringComparison.OrdinalIgnoreCase));
+                    // Robustness check: filter out names cleanly using exception isolation
+                    int psCount = descendants.Count(d => GetSafeProcessName(d).Equals("powershell", StringComparison.OrdinalIgnoreCase));
                     return descendants.Count >= 2 && psCount >= 2;
 
-                }, TimeSpan.FromSeconds(20));
+                }, TimeSpan.FromSeconds(TestTimeouts.ProcessTreeTimeoutSeconds));
 
                 if (root.HasExited)
                 {
-                    Assert.Fail($"Root process exited prematurely (ExitCode: {root.ExitCode}). Found: {string.Join(", ", descendants.Select(d => d.ProcessName))}");
+                    Assert.Fail($"Root process exited prematurely (ExitCode: {root.ExitCode}). Found: {string.Join(", ", descendants.Select(GetSafeProcessName))}");
                 }
 
-                Assert.True(treeStabilized, $"Tree failed to stabilize within 20s. Found {descendants.Count} descendants.");
+                // Assert
+                Assert.True(treeStabilized, $"Tree failed to stabilize within {TestTimeouts.ProcessTreeTimeoutSeconds}s. Found {descendants.Count} descendants.");
 
-                int finalPsCount = descendants.Count(d => d.ProcessName.Equals("powershell", StringComparison.OrdinalIgnoreCase));
+                int finalPsCount = descendants.Count(d => GetSafeProcessName(d).Equals("powershell", StringComparison.OrdinalIgnoreCase));
                 Assert.True(finalPsCount >= 2, $"Expected at least 2 nested powershell processes. Found: {finalPsCount}");
             }
             finally
@@ -148,9 +173,14 @@ namespace Servy.Service.IntegrationTests.ProcessManagement
         [Fact]
         public void GetChildren_SimulatedPidReuse_ReturnsEmptyList()
         {
+            // Arrange
             var root = SpawnProcessTree(1);
             var invalidStartTime = DateTime.Now.AddHours(1);
+
+            // Act
             var children = ProcessExtensions.GetChildren(root.Id, invalidStartTime);
+
+            // Assert
             Assert.Empty(children);
         }
 
@@ -163,7 +193,6 @@ namespace Servy.Service.IntegrationTests.ProcessManagement
         {
             // Arrange - Use an absolute out-of-bounds PID that can never belong to an active windows process allocation
             int nonExistentPid = 999999;
-
             var method = typeof(ProcessExtensions).GetMethod("TryResolveValidChild", BindingFlags.Static | BindingFlags.NonPublic);
 
             // Act - Invoke the verification flow; ArgumentException gets caught when Process.GetProcessById falls out
@@ -221,7 +250,7 @@ namespace Servy.Service.IntegrationTests.ProcessManagement
             string BuildScript(int currentDepth)
             {
                 if (currentDepth == 0)
-                    return "Start-Sleep -Seconds 15";
+                    return $"Start-Sleep -Seconds {TestTimeouts.ChildSleepSeconds}";
 
                 string innerScript = BuildScript(currentDepth - 1);
                 string encodedInner = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(innerScript));
@@ -267,9 +296,9 @@ namespace Servy.Service.IntegrationTests.ProcessManagement
                 foreach (var r in lastResults) r.Dispose();
                 lastResults = fetchMethod(root.Id, root.StartTime);
 
-                return lastResults.Any(p => p.ProcessName.Equals(targetName, StringComparison.OrdinalIgnoreCase));
+                return lastResults.Any(p => GetSafeProcessName(p).Equals(targetName, StringComparison.OrdinalIgnoreCase));
 
-            }, TimeSpan.FromSeconds(15));
+            }, TimeSpan.FromSeconds(TestTimeouts.ChildTimeoutSeconds));
 
             if (root.HasExited)
             {
@@ -278,19 +307,39 @@ namespace Servy.Service.IntegrationTests.ProcessManagement
 
             if (!found)
             {
-                string foundNames = string.Join(", ", lastResults.Select(p => p.ProcessName));
-                throw new TimeoutException($"Failed to find '{targetName}' child process within 15 seconds. Found instead: [{foundNames}]");
+                string foundNames = string.Join(", ", lastResults.Select(GetSafeProcessName));
+                throw new TimeoutException($"Failed to find '{targetName}' child process within {TestTimeouts.ChildTimeoutSeconds} seconds. Found instead: [{foundNames}]");
             }
 
             return lastResults;
         }
 
-        private int GetParentPidViaNative(Process process)
+        private int GetParentPidViaWmi(Process process)
         {
             using (var mo = new System.Management.ManagementObject($"win32_process.handle='{process.Id}'"))
             {
                 mo.Get();
                 return Convert.ToInt32(mo["ParentProcessId"]);
+            }
+        }
+
+        /// <summary>
+        /// Extracts the process name safely, protecting the integration test evaluation loops 
+        /// from throwing unhandled state exceptions if an ephemeral process exits mid-iteration.
+        /// </summary>
+        private static string GetSafeProcessName(Process p)
+        {
+            try
+            {
+                return p.ProcessName;
+            }
+            catch (InvalidOperationException)
+            {
+                return string.Empty;
+            }
+            catch (Win32Exception)
+            {
+                return string.Empty;
             }
         }
 

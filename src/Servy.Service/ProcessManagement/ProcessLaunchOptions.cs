@@ -40,7 +40,7 @@ namespace Servy.Service.ProcessManagement
         public bool FireAndForget { get; set; } = false;
 
         /// <summary>
-        /// A positive timeout, in milliseconds, to wait for the process to exit.
+        /// Gets or sets a positive timeout, in milliseconds, to wait for the process to exit.
         /// Only applicable when <see cref="FireAndForget"/> is false; required to be &gt; 0
         /// in synchronous mode. Use <see cref="FireAndForget"/> = true for unbounded launches.
         /// </summary>
@@ -52,9 +52,9 @@ namespace Servy.Service.ProcessManagement
         public bool LogErrorAsWarning { get; set; } = false;
 
         /// <summary>
-        /// Whether to enable the console user interface for the service.
+        /// Gets or sets a value indicating whether the launched child process is given a visible console window.
         /// </summary>
-        public bool EnableConsoleUI { get; set; }
+        public bool EnableConsoleUI { get; set; } = false;
 
         #endregion
 
@@ -85,12 +85,12 @@ namespace Servy.Service.ProcessManagement
         /// <summary>
         /// Gets or sets the optional filesystem path where standard output will be appended.
         /// </summary>
-        public string? StdOutPath { get; set; }
+        public string? StdoutPath { get; set; }
 
         /// <summary>
         /// Gets or sets the optional filesystem path where standard error will be appended.
         /// </summary>
-        public string? StdErrPath { get; set; }
+        public string? StderrPath { get; set; }
 
         #endregion
 

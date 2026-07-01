@@ -104,7 +104,6 @@ namespace Servy.UI.UnitTests.Design
         public async Task DesignTimeMessageBoxService_ReturnsTrueAndCompletes()
         {
             var service = new DesignTimeMessageBoxService();
-            var ct = TestContext.Current.CancellationToken;
 
             Assert.True(await service.ShowConfirmAsync("Message", "Caption"));
 
@@ -126,10 +125,8 @@ namespace Servy.UI.UnitTests.Design
         }
 
         [Fact]
-        public void DesignTimeCursorService_UsingBlock_WorksCorrectly()
+        public void DesignTimeCursorService_SetWaitCursor_DoesNotThrow()
         {
-            // Verifies the "mechanical necessity" of the NoOpDisposable 
-            // within a standard ViewModel pattern.
             var service = new DesignTimeCursorService();
 
             var exception = Record.Exception(service.SetWaitCursor);
@@ -141,11 +138,10 @@ namespace Servy.UI.UnitTests.Design
         public async Task DesignTimeHelpService_Methods_Complete()
         {
             var service = new DesignTimeHelpService();
-            var ct = TestContext.Current.CancellationToken;
 
-            await service.OpenDocumentation("caption");
-            await service.CheckUpdates("caption");
-            await service.OpenAboutDialog("about", "caption");
+            await service.OpenDocumentationAsync("caption");
+            await service.CheckUpdatesAsync("caption");
+            await service.OpenAboutDialogAsync("about", "caption");
         }
 
         [Fact]

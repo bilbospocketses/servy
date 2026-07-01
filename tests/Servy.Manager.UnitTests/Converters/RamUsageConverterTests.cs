@@ -1,4 +1,5 @@
-﻿using Moq;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Moq;
 using Servy.Core.Helpers;
 using Servy.Manager.Converters;
 using Servy.UI.Constants;
@@ -7,31 +8,50 @@ using System.Windows.Data;
 
 namespace Servy.Manager.UnitTests.Converters
 {
+    [Collection("Ambient AppServices Dependent Tests")]
     public class RamUsageConverterTests
     {
         private readonly Mock<IProcessHelper> _mockProcessHelper;
+        private readonly Mock<IProcessKiller> _mockProcessKiller;
 
         public RamUsageConverterTests()
         {
             _mockProcessHelper = new Mock<IProcessHelper>();
+            _mockProcessKiller = new Mock<IProcessKiller>();
         }
 
         [Fact]
         public void Convert_ValidLong_ReturnsFormattedString()
         {
             // Arrange
-            var converter = new RamUsageConverter();
-            long input = 1024 * 1024 * 10; // 10MB
+            var originalProvider = App.Services;
+            var serviceCollection = new ServiceCollection();
 
-            // Note: This relies on the internal DI resolution. 
-            // Ensure App.Services is mocked or configured if running in a full test host.
-            _mockProcessHelper.Setup(h => h.FormatRamUsage(input)).Returns("10 MB");
+            serviceCollection.AddSingleton(_mockProcessKiller.Object);
+            serviceCollection.AddSingleton(_mockProcessHelper.Object);
 
-            // Act
-            var result = converter.Convert(input, typeof(string), null!, CultureInfo.CurrentUICulture);
+            // Service registration must precede constructor execution 
+            // to satisfy the constructor's immediate ServiceProvider lookup check.
+            App.Services = serviceCollection.BuildServiceProvider();
 
-            // Assert
-            Assert.Equal("10.0 MB", result);
+            try
+            {
+                long input = 1024 * 1024 * 10; // 10MB
+                string mockTargetOutput = "10 MB"; // Distinct payload text to prove mock interception over real formatting
+
+                _mockProcessHelper.Setup(h => h.FormatRamUsage(input)).Returns(mockTargetOutput);
+                var converter = new RamUsageConverter();
+
+                // Act
+                var result = converter.Convert(input, typeof(string), null!, CultureInfo.CurrentUICulture);
+
+                // Assert
+                Assert.Equal(mockTargetOutput, result);
+            }
+            finally
+            {
+                App.Services = originalProvider;
+            }
         }
 
         [Theory]
@@ -41,26 +61,54 @@ namespace Servy.Manager.UnitTests.Converters
         public void Convert_InvalidOrNullValue_ReturnsUnknownPlaceholder(object? input)
         {
             // Arrange
-            var converter = new RamUsageConverter();
+            var originalProvider = App.Services;
+            var serviceCollection = new ServiceCollection();
+            serviceCollection.AddSingleton(_mockProcessKiller.Object);
+            serviceCollection.AddSingleton(_mockProcessHelper.Object);
 
-            // Act
-            var result = converter.Convert(input!, typeof(string), null!, CultureInfo.CurrentUICulture);
+            App.Services = serviceCollection.BuildServiceProvider();
 
-            // Assert
-            Assert.Equal(UiConstants.NotAvailable, result);
+            try
+            {
+                var converter = new RamUsageConverter();
+
+                // Act
+                var result = converter.Convert(input!, typeof(string), null!, CultureInfo.CurrentUICulture);
+
+                // Assert
+                Assert.Equal(UiConstants.NotAvailable, result);
+            }
+            finally
+            {
+                App.Services = originalProvider;
+            }
         }
 
         [Fact]
         public void ConvertBack_ReturnsDoNothing()
         {
             // Arrange
-            var converter = new RamUsageConverter();
+            var originalProvider = App.Services;
+            var serviceCollection = new ServiceCollection();
+            serviceCollection.AddSingleton(_mockProcessKiller.Object);
+            serviceCollection.AddSingleton(_mockProcessHelper.Object);
 
-            // Act
-            var result = converter.ConvertBack(null!, typeof(long), null!, CultureInfo.CurrentUICulture);
+            App.Services = serviceCollection.BuildServiceProvider();
 
-            // Assert
-            Assert.Equal(Binding.DoNothing, result);
+            try
+            {
+                var converter = new RamUsageConverter();
+
+                // Act
+                var result = converter.ConvertBack(null!, typeof(long), null!, CultureInfo.CurrentUICulture);
+
+                // Assert
+                Assert.Equal(Binding.DoNothing, result);
+            }
+            finally
+            {
+                App.Services = originalProvider;
+            }
         }
     }
 }

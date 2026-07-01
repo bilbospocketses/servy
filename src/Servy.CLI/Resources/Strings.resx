@@ -13,11 +13,8 @@
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms</value>
   </resheader>
 
-  <data name="Msg_InvalidValue" xml:space="preserve">
-    <value>Invalid value.</value>
-  </data>
-  <data name="Msg_FieldRequired" xml:space="preserve">
-    <value>This field is required.</value>
+  <data name="Msg_PreparingEnvironment" xml:space="preserve">
+    <value>Preparing environment...</value>
   </data>
   <data name="Msg_AdminPrivilegesRequired" xml:space="preserve">
     <value>Access Denied. Please restart your shell as Administrator to run the '{0}' command.</value>
@@ -25,20 +22,14 @@
   <data name="Msg_UnknownError" xml:space="preserve">
     <value>An unknown error occurred.</value>
   </data>
-  <data name="Msg_Preparing" xml:space="preserve">
-    <value>Preparing environment...</value>
-  </data>
   <data name="Msg_InvalidExecutablePath" xml:space="preserve">
     <value>Invalid executable path: {0}. Ensure the file exists and is accessible.</value>
-  </data>
-  <data name="Msg_InvalidPath" xml:space="preserve">
-    <value>The specified process path is invalid.</value>
   </data>
   <data name="Msg_ServiceNameRequired" xml:space="preserve">
     <value>Service name is required.</value>
   </data>
   <data name="Msg_WrapperNotFound" xml:space="preserve">
-    <value>Wrapper executable not found at: %ProgramData%\Servy\Servy.Service.exe. Ensure Servy is properly installed.</value>
+    <value>Wrapper executable not found at: %ProgramData%\Servy\Servy.Service.CLI.exe. Ensure Servy is properly installed.</value>
   </data>
   <data name="Msg_InvalidPathInConfig" xml:space="preserve">
     <value>Invalid {0} in configuration. Ensure the path exists and is accessible.</value>
@@ -57,9 +48,6 @@
   </data>
   <data name="Msg_ImportRepoFailure" xml:space="preserve">
     <value>Failed to import {0} configuration into the repository.</value>
-  </data>
-  <data name="Msg_ServiceStatusFailure" xml:space="preserve">
-    <value>Failed to retrieve status for service '{0}'.</value>
   </data>
   <data name="Msg_ImportDeserializationFailure" xml:space="preserve">
     <value>Service configuration was imported, but failed to deserialize for installation.</value>
@@ -88,9 +76,6 @@
   <data name="Msg_ServiceStatusResult" xml:space="preserve">
     <value>Service status for '{0}': {1}</value>
   </data>
-  <data name="Msg_ConfigSizeLimitReached" xml:space="preserve">
-    <value>Configuration file '{0}' exceeds maximum size (10 MB).</value>
-  </data>
   <data name="Msg_StartSuccess" xml:space="preserve">
     <value>Service '{0}' started successfully.</value>
   </data>
@@ -99,9 +84,6 @@
   </data>
   <data name="Msg_UninstallSuccess" xml:space="preserve">
     <value>Service '{0}' uninstalled successfully.</value>
-  </data>
-  <data name="Msg_ServiceDisabled" xml:space="preserve">
-    <value>A disabled service with this name already exists. Choose a different name.</value>
   </data>
   <data name="Msg_ServiceNotFound" xml:space="preserve">
     <value>The specified service was not found.</value>
@@ -112,7 +94,6 @@
   <data name="Msg_CommandCancelled" xml:space="preserve">
     <value>Operation '{0}' was cancelled by the user.</value>
   </data>
-
   <data name="Msg_CommandFailedTemplate" xml:space="preserve">
     <value>Failed to {0}: {1}</value>
     <comment>Generic template for command failures. {0} is the localized action description, {1} is the exception message.</comment>
@@ -121,4 +102,60 @@
     <value>Suggestion: {0}</value>
     <comment>Prefix for actionable troubleshooting suggestions. {0} is the localized suggestion text.</comment>
   </data>
+  <data name="Msg_InvalidIntegerFormat" xml:space="preserve">
+    <value>Invalid integer format for {0}: '{1}'</value>
+  </data>
+  <data name="Msg_InvalidEnumValue" xml:space="preserve">
+    <value>Invalid value for {0}: '{1}'. Valid options: {2}</value>
+  </data>
+
+  <data name="Msg_InstallServiceAction" xml:space="preserve">
+    <value>install service '{0}'</value>
+  </data>
+  <data name="Msg_InstallServiceSuggestion" xml:space="preserve">
+    <value>Ensure the executable path is correct, the service name is not already in use, and you are running with Administrator privileges.</value>
+  </data>
+  <data name="Msg_StartServiceAction" xml:space="preserve">
+    <value>start service '{0}'</value>
+  </data>
+  <data name="Msg_StartServiceSuggestion" xml:space="preserve">
+    <value>Ensure the service is installed, the executable path is valid, and the service account has 'Log On As Service' rights.</value>
+  </data>
+  <data name="Msg_StopServiceAction" xml:space="preserve">
+    <value>stop service '{0}'</value>
+  </data>
+  <data name="Msg_StopServiceSuggestion" xml:space="preserve">
+    <value>Ensure you have Administrator privileges. If the service is unresponsive, you may need to terminate the process manually via Task Manager.</value>
+  </data>
+  <data name="Msg_RestartServiceAction" xml:space="preserve">
+    <value>restart service '{0}'</value>
+  </data>
+  <data name="Msg_RestartServiceSuggestion" xml:space="preserve">
+    <value>Ensure the service is currently installed and that your account has sufficient permissions to stop and start services.</value>
+  </data>
+  <data name="Msg_UninstallServiceAction" xml:space="preserve">
+    <value>uninstall service '{0}'</value>
+  </data>
+  <data name="Msg_UninstallServiceSuggestion" xml:space="preserve">
+    <value>Ensure the service is stopped before uninstalling and that you are running this command as an Administrator.</value>
+  </data>
+  <data name="Msg_ServiceStatusAction" xml:space="preserve">
+    <value>query status for service '{0}'</value>
+  </data>
+  <data name="Msg_ServiceStatusSuggestion" xml:space="preserve">
+    <value>Verify the service name is spelled correctly and that it is currently installed on this system.</value>
+  </data>
+  <data name="Msg_ExportServiceAction" xml:space="preserve">
+    <value>export configuration for service '{0}'</value>
+  </data>
+  <data name="Msg_ExportServiceSuggestion" xml:space="preserve">
+    <value>Ensure the service exists in the database and you have write permissions to the destination path.</value>
+  </data>
+  <data name="Msg_ImportServiceAction" xml:space="preserve">
+    <value>import configuration from '{0}'</value>
+  </data>
+  <data name="Msg_ImportServiceSuggestion" xml:space="preserve">
+    <value>Check that the file path is correct, the file format is valid JSON or XML, and you have read permissions.</value>
+  </data>
+
 </root>

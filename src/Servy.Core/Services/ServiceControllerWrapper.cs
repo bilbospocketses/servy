@@ -1,5 +1,7 @@
 ﻿using Servy.Core.Logging;
 using Servy.Core.Resources;
+using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.ServiceProcess;
 
 namespace Servy.Core.Services
@@ -32,6 +34,7 @@ namespace Servy.Core.Services
         }
 
         /// <inheritdoc/>
+        [ExcludeFromCodeCoverage]
         public ServiceControllerStatus Status
         {
             get
@@ -42,6 +45,7 @@ namespace Servy.Core.Services
         }
 
         /// <inheritdoc/>
+        [ExcludeFromCodeCoverage]
         public ServiceStartMode StartType
         {
             get
@@ -52,6 +56,7 @@ namespace Servy.Core.Services
         }
 
         /// <inheritdoc/>
+        [ExcludeFromCodeCoverage]
         public void Start()
         {
             ThrowIfDisposed();
@@ -59,6 +64,7 @@ namespace Servy.Core.Services
         }
 
         /// <inheritdoc/>
+        [ExcludeFromCodeCoverage]
         public void Stop()
         {
             ThrowIfDisposed();
@@ -66,6 +72,7 @@ namespace Servy.Core.Services
         }
 
         /// <inheritdoc/>
+        [ExcludeFromCodeCoverage]
         public void Refresh()
         {
             ThrowIfDisposed();
@@ -73,6 +80,7 @@ namespace Servy.Core.Services
         }
 
         /// <inheritdoc/>
+        [ExcludeFromCodeCoverage]
         public void WaitForStatus(ServiceControllerStatus desiredStatus, TimeSpan timeout)
         {
             ThrowIfDisposed();
@@ -82,6 +90,7 @@ namespace Servy.Core.Services
         /// <inheritdoc/>
         public ServiceDependencyNode GetDependencies(CancellationToken cancellationToken = default)
         {
+            ThrowIfDisposed();
             cancellationToken.ThrowIfCancellationRequested();
 
             // Tracks the current branch from root to leaf to detect deep cycles
@@ -154,7 +163,7 @@ namespace Servy.Core.Services
 
                     try
                     {
-                        // Collect children in a temporary list to sort them before adding to the TreeView
+                        // Collect children in a temporary list so they can be sorted before being added to the node
                         var childNodes = new List<ServiceDependencyNode>();
 
                         // Accessing this property can throw Win32Exception (Access Denied)
@@ -213,10 +222,16 @@ namespace Servy.Core.Services
                 Logger.Debug($"Dependency '{serviceName}' unavailable: {ex.Message}");
                 return new ServiceDependencyNode(serviceName, string.Format(Strings.Msg_DependencyUnavailable, serviceName), false, false);
             }
-            catch (System.ComponentModel.Win32Exception ex)
+            catch (Win32Exception ex)
             {
                 Logger.Warn($"Win32 error resolving dependency '{serviceName}'.", ex);
-                return new ServiceDependencyNode(serviceName, string.Format(Strings.Msg_DependencyAccessDenied, serviceName), false, false);
+
+                // Discrimination filter targeting Win32 error code 5 (ERROR_ACCESS_DENIED)
+                string localizedMessage = ex.NativeErrorCode == 5
+                    ? string.Format(Strings.Msg_DependencyAccessDenied, serviceName)
+                    : string.Format(Strings.Msg_DependencyUnavailable, serviceName);
+
+                return new ServiceDependencyNode(serviceName, localizedMessage, false, false);
             }
         }
 
@@ -246,7 +261,6 @@ namespace Servy.Core.Services
         /// <summary>
         /// Protected dispose pattern implementation.
         /// </summary>
-        /// <param name="disposing">True if called from <see cref="Dispose()"/>, false if called from a finalizer.</param>
         protected virtual void Dispose(bool disposing)
         {
             if (_disposed)
@@ -254,7 +268,6 @@ namespace Servy.Core.Services
 
             if (disposing)
             {
-                // Dispose managed resources
                 _controller.Dispose();
             }
 

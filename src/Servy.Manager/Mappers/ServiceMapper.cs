@@ -2,7 +2,7 @@
 using Servy.Core.Enums;
 using Servy.Core.Helpers;
 using Servy.Manager.Models;
-using AppConfig = Servy.Manager.Config.AppConfig;
+using UiAppConfig = Servy.Manager.Config.UiAppConfig;
 
 namespace Servy.Manager.Mappers
 {
@@ -43,7 +43,7 @@ namespace Servy.Manager.Mappers
 
             double? cpuUsage = null;
             long? ramUsage = null;
-            if (calculatePerf && service.Pid.HasValue && processHelper != null)
+            if (calculatePerf && service.Pid.HasValue)
             {
                 var processMetrics = await Task.Run(() => processHelper.GetProcessTreeMetrics(service.Pid.Value), cancellationToken);
                 cpuUsage = processMetrics.CpuUsage;
@@ -56,7 +56,7 @@ namespace Servy.Manager.Mappers
                 Description = service.Description ?? string.Empty,
                 StartupType = null,
                 Status = ServiceStatus.None,
-                LogOnAs = service.RunAsLocalSystem ? AppConfig.LocalSystem : GetLogOnAsDisplayName(service.UserAccount),
+                LogOnAs = service.RunAsLocalSystem ? UiAppConfig.LocalSystem : GetLogOnAsDisplayName(service.UserAccount),
                 IsInstalled = false,
                 IsDesktopAppAvailable = isDesktopAppAvailable,
                 Pid = service.Pid,
@@ -82,7 +82,7 @@ namespace Servy.Manager.Mappers
         /// It includes polymorphic handling: if the input is a <see cref="ConsoleService"/>, the 
         /// <c>StdoutPath</c> and <c>StderrPath</c> properties are also preserved in the resulting model.
         /// </remarks>
-        public static Service? ToModel(ServiceItemBase item)
+        public static Service? ToModel(ServiceItemBase? item)
         {
             if (item == null) return null;
             var service = new Service
@@ -93,8 +93,8 @@ namespace Servy.Manager.Mappers
             };
             if (item is ConsoleService consoleService)
             {
-                service.StdoutPath = consoleService.StdoutPath;
-                service.StderrPath = consoleService.StderrPath;
+                service.StdoutPath = consoleService.StdoutPath ?? string.Empty;
+                service.StderrPath = consoleService.StderrPath ?? string.Empty;
             }
             return service;
         }
@@ -106,19 +106,19 @@ namespace Servy.Manager.Mappers
         /// <returns>A localized display string representing the account, defaulting to the localized Local System string if the input matches system-level credentials.</returns>
         public static string GetLogOnAsDisplayName(string? userSession)
         {
-            // LOG: Resolving display name for service account identity.
-            // Logic: If the string is null, empty, or matches the internal "LocalSystem" SCM name, we return the UI-friendly constant.
+            // Resolving display name for service account identity.
+            // If the string is null, empty, or matches the internal "LocalSystem" SCM name, we return the UI-friendly constant.
             if (string.IsNullOrEmpty(userSession))
-                return AppConfig.LocalSystem;
+                return UiAppConfig.LocalSystem;
 
             if (ServiceAccounts.LocalSystemAliases.Contains(userSession))
-                return AppConfig.LocalSystem;
+                return UiAppConfig.LocalSystem;
 
             if (ServiceAccounts.LocalServiceAliases.Contains(userSession))
-                return AppConfig.LocalService;
+                return UiAppConfig.LocalService;
 
             if (ServiceAccounts.NetworkServiceAliases.Contains(userSession))
-                return AppConfig.NetworkService;
+                return UiAppConfig.NetworkService;
 
             return userSession;
         }

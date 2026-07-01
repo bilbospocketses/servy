@@ -10,9 +10,8 @@
 
 namespace Servy.Manager.Resources {
     using System;
-    using System.Diagnostics.CodeAnalysis;
-
-
+    
+    
     /// <summary>
     ///   Une classe de ressource fortement typée destinée, entre autres, à la consultation des chaînes localisées.
     /// </summary>
@@ -23,7 +22,6 @@ namespace Servy.Manager.Resources {
     [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "18.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
-    [ExcludeFromCodeCoverage]
     public class Strings {
         
         private static global::System.Resources.ResourceManager resourceMan;
@@ -270,7 +268,7 @@ namespace Servy.Manager.Resources {
         }
         
         /// <summary>
-        ///   Recherche une chaîne localisée semblable à User Session.
+        ///   Recherche une chaîne localisée semblable à Log On As.
         /// </summary>
         public static string Column_LogOnAs {
             get {
@@ -770,15 +768,6 @@ namespace Servy.Manager.Resources {
         public static string Msg_ArgumentsLengthReached {
             get {
                 return ResourceManager.GetString("Msg_ArgumentsLengthReached", resourceCulture);
-            }
-        }
-        
-        /// <summary>
-        ///   Recherche une chaîne localisée semblable à Configuration file exceeds maximum size (10 MB)..
-        /// </summary>
-        public static string Msg_ConfigSizeLimitReached {
-            get {
-                return ResourceManager.GetString("Msg_ConfigSizeLimitReached", resourceCulture);
             }
         }
         

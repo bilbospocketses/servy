@@ -4,8 +4,9 @@ namespace Servy.Manager.Services
 {
     /// <summary>
     /// Defines commands and operations related to service management.
-    /// Provides methods for searching, starting, stopping, configuring,
-    /// installing, uninstalling, removing, and importing/exporting services.
+    /// Provides methods for searching, starting, stopping, restarting, 
+    /// configuring, installing, uninstalling, removing, 
+    /// importing/exporting services, and copying service PIDs.
     /// </summary>
     public interface IServiceCommands : IDisposable
     {
@@ -16,7 +17,7 @@ namespace Servy.Manager.Services
         /// <param name="calculatePerf">Whether to calculate CPU and RAM for the services.</param>
         /// <param name="cancellationToken">Optional cancellation token.</param>
         /// <returns>A collection of <see cref="Service"/> objects that match the search.</returns>
-        Task<List<Service?>> SearchServicesAsync(string? searchText, bool calculatePerf, CancellationToken cancellationToken = default);
+        Task<List<Service>> SearchServicesAsync(string? searchText, bool calculatePerf, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Starts the specified service.
@@ -111,7 +112,8 @@ namespace Servy.Manager.Services
         /// Copies the PID of the specified service to the clipboard.
         /// </summary>
         /// <param name="service">The service whose PID should be copied to the clipboard.</param>
+        /// <param name="cancellationToken">Optional cancellation token.</param>
         /// <returns>A task that represents the asynchronous operation.</returns>
-        Task CopyPidAsync(Service? service);
+        Task CopyPidAsync(Service? service, CancellationToken cancellationToken = default);
     }
 }

@@ -10,9 +10,8 @@
 
 namespace Servy.Core.Resources {
     using System;
-    using System.Diagnostics.CodeAnalysis;
-
-
+    
+    
     /// <summary>
     ///   Une classe de ressource fortement typée destinée, entre autres, à la consultation des chaînes localisées.
     /// </summary>
@@ -23,7 +22,6 @@ namespace Servy.Core.Resources {
     [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "18.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
-    [ExcludeFromCodeCoverage]
     public class Strings {
         
         private static global::System.Resources.ResourceManager resourceMan;
@@ -117,7 +115,7 @@ namespace Servy.Core.Resources {
         }
         
         /// <summary>
-        ///   Recherche une chaîne localisée semblable à Configuration file &apos;{0}&apos; exceeds maximum size (10 MB)..
+        ///   Recherche une chaîne localisée semblable à Configuration file &apos;{0}&apos; exceeds maximum size ({1} MB)..
         /// </summary>
         public static string Msg_ConfigSizeLimitReached {
             get {
@@ -180,11 +178,29 @@ namespace Servy.Core.Resources {
         }
         
         /// <summary>
+        ///   Recherche une chaîne localisée semblable à The environment variable key &apos;{0}&apos; contains illegal characters..
+        /// </summary>
+        public static string Msg_EnvironmentVariableKeyInvalidChars {
+            get {
+                return ResourceManager.GetString("Msg_EnvironmentVariableKeyInvalidChars", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Recherche une chaîne localisée semblable à Each environment variable must contain an unescaped &apos;=&apos; character to separate the key from the value..
         /// </summary>
         public static string Msg_EnvironmentVariableMissingEquals {
             get {
                 return ResourceManager.GetString("Msg_EnvironmentVariableMissingEquals", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à Service process path cannot be empty..
+        /// </summary>
+        public static string Msg_ExecutablePathRequired {
+            get {
+                return ResourceManager.GetString("Msg_ExecutablePathRequired", resourceCulture);
             }
         }
         
@@ -207,11 +223,56 @@ namespace Servy.Core.Resources {
         }
         
         /// <summary>
+        ///   Recherche une chaîne localisée semblable à {0} deserialization resulted in an empty service definition..
+        /// </summary>
+        public static string Msg_ImportEmptyDefinition {
+            get {
+                return ResourceManager.GetString("Msg_ImportEmptyDefinition", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Recherche une chaîne localisée semblable à [Import] File not found: {0}.
         /// </summary>
         public static string Msg_ImportFileNotFound {
             get {
                 return ResourceManager.GetString("Msg_ImportFileNotFound", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à {0} input cannot be empty or whitespace..
+        /// </summary>
+        public static string Msg_ImportInputEmptyOrWhitespace {
+            get {
+                return ResourceManager.GetString("Msg_ImportInputEmptyOrWhitespace", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à Invalid {0} structure: {1}.
+        /// </summary>
+        public static string Msg_ImportInvalidStructure {
+            get {
+                return ResourceManager.GetString("Msg_ImportInvalidStructure", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à {0} payload exceeds the maximum allowed size of {1} MB..
+        /// </summary>
+        public static string Msg_ImportPayloadTooLarge {
+            get {
+                return ResourceManager.GetString("Msg_ImportPayloadTooLarge", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à {0} structure error: {1}.
+        /// </summary>
+        public static string Msg_ImportStructureError {
+            get {
+                return ResourceManager.GetString("Msg_ImportStructureError", resourceCulture);
             }
         }
         
@@ -441,7 +502,7 @@ namespace Servy.Core.Resources {
         }
         
         /// <summary>
-        ///   Recherche une chaîne localisée semblable à Invalid service name &apos;{0}&apos;. Only letters, digits, hyphens, underscores, and periods are allowed..
+        ///   Recherche une chaîne localisée semblable à Invalid service name &apos;{0}&apos;. Only letters, digits, hyphens, underscores, spaces, and dollar signs ($) are allowed..
         /// </summary>
         public static string Msg_InvalidServiceDependencyName {
             get {
@@ -531,11 +592,29 @@ namespace Servy.Core.Resources {
         }
         
         /// <summary>
+        ///   Recherche une chaîne localisée semblable à Security Alert: Exporting configurations to directory junctions or symlinks is prohibited to prevent path redirection attacks..
+        /// </summary>
+        public static string Msg_SecurityDirReparsePointExportProhibited {
+            get {
+                return ResourceManager.GetString("Msg_SecurityDirReparsePointExportProhibited", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Recherche une chaîne localisée semblable à Security Alert: Importing configurations through directory junctions or symlinks is prohibited to prevent path redirection attacks..
         /// </summary>
         public static string Msg_SecurityDirReparsePointProhibited {
             get {
                 return ResourceManager.GetString("Msg_SecurityDirReparsePointProhibited", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à Security Alert: Exporting configurations to file symbolic links or junctions is prohibited to prevent path redirection attacks..
+        /// </summary>
+        public static string Msg_SecurityFileReparsePointExportProhibited {
+            get {
+                return ResourceManager.GetString("Msg_SecurityFileReparsePointExportProhibited", resourceCulture);
             }
         }
         
@@ -558,6 +637,24 @@ namespace Servy.Core.Resources {
         }
         
         /// <summary>
+        ///   Recherche une chaîne localisée semblable à Path validation failed at the kernel level: Kernel path resolution serialization failed..
+        /// </summary>
+        public static string Msg_SecurityHandleSerializationFailed {
+            get {
+                return ResourceManager.GetString("Msg_SecurityHandleSerializationFailed", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à Path validation failed at the kernel level: Kernel size probe allocation failed..
+        /// </summary>
+        public static string Msg_SecurityHandleSizeProbeFailed {
+            get {
+                return ResourceManager.GetString("Msg_SecurityHandleSizeProbeFailed", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Recherche une chaîne localisée semblable à Security Guard Failure: Target file handle validation rejected. {0}.
         /// </summary>
         public static string Msg_SecurityHandleValidationFailed {
@@ -572,6 +669,15 @@ namespace Servy.Core.Resources {
         public static string Msg_SecurityInvalidFileType {
             get {
                 return ResourceManager.GetString("Msg_SecurityInvalidFileType", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à Security Alert: Exporting to network drives (including mapped UNC shares) is prohibited..
+        /// </summary>
+        public static string Msg_SecurityNetworkDriveExportProhibited {
+            get {
+                return ResourceManager.GetString("Msg_SecurityNetworkDriveExportProhibited", resourceCulture);
             }
         }
         
@@ -594,6 +700,15 @@ namespace Servy.Core.Resources {
         }
         
         /// <summary>
+        ///   Recherche une chaîne localisée semblable à Access Denied: The resolved path targets protected system directory &apos;{0}&apos;. Export prohibited..
+        /// </summary>
+        public static string Msg_SecurityProtectedDirectoryExport {
+            get {
+                return ResourceManager.GetString("Msg_SecurityProtectedDirectoryExport", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Recherche une chaîne localisée semblable à Security Alert: &apos;{0}&apos; is a reserved Windows device name and cannot be used..
         /// </summary>
         public static string Msg_SecurityReservedDeviceName {
@@ -608,6 +723,24 @@ namespace Servy.Core.Resources {
         public static string Msg_SecurityResolvedUncDestination {
             get {
                 return ResourceManager.GetString("Msg_SecurityResolvedUncDestination", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à Security Alert: Resolved file target points directly to a UNC destination. Export aborted..
+        /// </summary>
+        public static string Msg_SecurityResolvedUncDestinationExport {
+            get {
+                return ResourceManager.GetString("Msg_SecurityResolvedUncDestinationExport", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Recherche une chaîne localisée semblable à Security Alert: Exporting to UNC paths is prohibited to prevent configuration exfiltration..
+        /// </summary>
+        public static string Msg_SecurityUncPathExportProhibited {
+            get {
+                return ResourceManager.GetString("Msg_SecurityUncPathExportProhibited", resourceCulture);
             }
         }
         
@@ -657,11 +790,11 @@ namespace Servy.Core.Resources {
         }
         
         /// <summary>
-        ///   Recherche une chaîne localisée semblable à The service name is too long. It must be 256 characters or fewer..
+        ///   Recherche une chaîne localisée semblable à Service name cannot be empty..
         /// </summary>
-        public static string Msg_ServiceNameTooLong {
+        public static string Msg_ServiceNameRequired {
             get {
-                return ResourceManager.GetString("Msg_ServiceNameTooLong", resourceCulture);
+                return ResourceManager.GetString("Msg_ServiceNameRequired", resourceCulture);
             }
         }
         

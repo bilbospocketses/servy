@@ -11,16 +11,11 @@ namespace Servy.Core.Logging
 {
     /// <summary>
     /// Provides a thread-safe, fail-silent static logging utility for the Servy ecosystem.
-    /// Uses <see cref="RotatingStreamWriter"/> to ensure logs are rotated based on size 
-    /// while preventing unbounded file growth.
+    /// Uses <see cref="RotatingStreamWriter"/> to rotate logs by size and/or date interval
+    /// (daily, weekly, monthly), preventing unbounded file growth.
     /// </summary>
     public static class Logger
     {
-        /// <summary>
-        /// Default maximum number of backup log files to keep. When the number of rotated files exceeds this limit, the oldest files will be deleted.
-        /// </summary>
-        public const int DefaultMaxBackupLogFiles = 10;
-
         /// <summary>
         /// Logs folder path.
         /// </summary>
@@ -38,12 +33,6 @@ namespace Servy.Core.Logging
         /// </summary>
         private static readonly Regex VerticalControlRegex = new Regex(@"[\v\f]", RegexOptions.Compiled, AppConfig.InputRegexTimeout);
 
-        /// <summary>
-        /// The maximum number of fallback log writes allowed per process lifetime.
-        /// Prevents unbounded growth of fallback log files if the primary logger continuously fails.
-        /// </summary>
-        private const int MaxFallbackWrites = 10;
-
         private static readonly object _lock = new object();
         private static volatile RotatingStreamWriter? _writer;
 
@@ -59,7 +48,7 @@ namespace Servy.Core.Logging
         /// The maximum number of backup log files to keep. 
         /// Set to 0 to allow an unlimited number of backup files.
         /// </summary>
-        private static int _maxBackupLogFiles = DefaultMaxBackupLogFiles;
+        private static int _maxBackupLogFiles = AppConfig.LoggerDefaultMaxBackupLogFiles;
 
         // Counters to limit fallback file growth
         private static int _initFallbackWriteCount = 0;
@@ -99,19 +88,13 @@ namespace Servy.Core.Logging
             int logRotationSizeMB = AppConfig.DefaultRotationSizeMB,
             DateRotationType dateRotationType = DateRotationType.None,
             bool useLocalTimeForRotation = AppConfig.DefaultUseLocalTimeForRotation,
-            int maxBackupLogFiles = DefaultMaxBackupLogFiles
+            int maxBackupLogFiles = AppConfig.LoggerDefaultMaxBackupLogFiles
             )
         {
             lock (_lock)
             {
                 _fileName = fileName;
-                _currentLogLevel = (int)logLevel;
-                _logRotationSizeMB = logRotationSizeMB;
-                _dateRotationType = dateRotationType;
-                _useLocalTimeForRotation = useLocalTimeForRotation;
-                _maxBackupLogFiles = maxBackupLogFiles;
-
-                InternalInitialize();
+                Initialize(logLevel, logRotationSizeMB, dateRotationType, useLocalTimeForRotation, maxBackupLogFiles);
             }
         }
 
@@ -142,16 +125,18 @@ namespace Servy.Core.Logging
             int logRotationSizeMB = AppConfig.DefaultRotationSizeMB,
             DateRotationType dateRotationType = DateRotationType.None,
             bool useLocalTimeForRotation = AppConfig.DefaultUseLocalTimeForRotation,
-            int maxBackupLogFiles = DefaultMaxBackupLogFiles
+            int maxBackupLogFiles = AppConfig.LoggerDefaultMaxBackupLogFiles
             )
         {
             lock (_lock)
             {
                 _currentLogLevel = (int)logLevel;
-                _logRotationSizeMB = logRotationSizeMB;
                 _dateRotationType = dateRotationType;
                 _useLocalTimeForRotation = useLocalTimeForRotation;
-                _maxBackupLogFiles = maxBackupLogFiles;
+
+                // Validates and bounds inputs to align initialization policies with runtime API constraints
+                _logRotationSizeMB = logRotationSizeMB > 0 ? logRotationSizeMB : AppConfig.DefaultRotationSizeMB;
+                _maxBackupLogFiles = maxBackupLogFiles >= 0 ? maxBackupLogFiles : AppConfig.LoggerDefaultMaxBackupLogFiles;
 
                 // Re-arm or cycle the writer if we have a valid baseline path,
                 // ensuring re-initialization requests that follow a Shutdown() do not silently lose their state.
@@ -207,7 +192,7 @@ namespace Servy.Core.Logging
                 try
                 {
                     // Fail-silent, but limit writes to prevent disk exhaustion
-                    if (Interlocked.Increment(ref _initFallbackWriteCount) <= MaxFallbackWrites)
+                    if (Interlocked.Increment(ref _initFallbackWriteCount) <= AppConfig.LoggerMaxFallbackWrites)
                     {
                         EnsureLogsDir();
                         File.AppendAllText(Path.Combine(LogsPath, "LoggerInitializationErrors.log"),
@@ -351,10 +336,7 @@ namespace Servy.Core.Logging
         /// <param name="ex">An optional <see cref="Exception"/> to include in the log trace.</param>
         public static void Debug(string? message, Exception? ex = null)
         {
-            if ((LogLevel)_currentLogLevel <= LogLevel.Debug)
-            {
-                Log(LogLevel.Debug, ex != null ? $"{message} | Exception: {FormatException(ex)}" : message);
-            }
+            WriteLeveled(LogLevel.Debug, message, ex);
         }
 
         /// <summary>
@@ -374,10 +356,7 @@ namespace Servy.Core.Logging
         /// </remarks>
         public static void Info(string? message, Exception? ex = null)
         {
-            if ((LogLevel)_currentLogLevel <= LogLevel.Info)
-            {
-                Log(LogLevel.Info, ex != null ? $"{message} | Exception: {FormatException(ex)}" : message);
-            }
+            WriteLeveled(LogLevel.Info, message, ex);
         }
 
         /// <summary>
@@ -388,10 +367,7 @@ namespace Servy.Core.Logging
         /// <param name="ex">An optional <see cref="Exception"/> to include in the log trace.</param>
         public static void Warn(string? message, Exception? ex = null)
         {
-            if ((LogLevel)_currentLogLevel <= LogLevel.Warn)
-            {
-                Log(LogLevel.Warn, ex != null ? $"{message} | Exception: {FormatException(ex)}" : message);
-            }
+            WriteLeveled(LogLevel.Warn, message, ex);
         }
 
         /// <summary>
@@ -401,10 +377,7 @@ namespace Servy.Core.Logging
         /// <param name="ex">An optional <see cref="Exception"/> to include in the log trace.</param>
         public static void Error(string? message, Exception? ex = null)
         {
-            if ((LogLevel)_currentLogLevel <= LogLevel.Error)
-            {
-                Log(LogLevel.Error, ex != null ? $"{message} | Exception: {FormatException(ex)}" : message);
-            }
+            WriteLeveled(LogLevel.Error, message, ex);
         }
 
         /// <summary>
@@ -427,7 +400,7 @@ namespace Servy.Core.Logging
             {
                 try
                 {
-                    if (Interlocked.Increment(ref _logFallbackWriteCount) <= MaxFallbackWrites)
+                    if (Interlocked.Increment(ref _logFallbackWriteCount) <= AppConfig.LoggerMaxFallbackWrites)
                     {
                         EnsureLogsDir();
                         File.AppendAllText(Path.Combine(LogsPath, "LoggerWriteErrors.log"),
@@ -437,6 +410,18 @@ namespace Servy.Core.Logging
                 catch { /* fail-silent */ }
                 return;
             }
+
+            // Pre-compute formatting, regex sanitization, and timestamping outside the global lock.
+            // This minimizes critical section contention, allowing concurrent log entry formatting.
+            string levelName = (int)level >= 0 && (int)level < LevelStrings.Length
+                ? LevelStrings[(int)level]
+                : level.ToString().ToUpperInvariant(); // Fallback for safety
+
+            // Sanitize message into a single-line representation for better scannability
+            string sanitizedMessage = SanitizeToSingleLine(message);
+
+            // Format: [2026-05-06 08:58:20.123+01:00] [INFO] | Message text  OR  [2026-05-06 08:58:20.123Z] [INFO] | Message text
+            string logEntry = $"{FormatTimestampPrefix()} [{levelName}] | {sanitizedMessage}";
 
             try
             {
@@ -448,18 +433,6 @@ namespace Servy.Core.Logging
                     // 2. Double-check: Correctly see either null or the NEW writer.
                     if (_writer == null) return;
 
-                    string levelName = (int)level >= 0 && (int)level < LevelStrings.Length
-                        ? LevelStrings[(int)level]
-                        : level.ToString().ToUpperInvariant(); // Fallback for safety
-
-                    // Sanitize message into a single-line representation for better scannability
-                    var sanitizedMessage = LineBreakingRegex.Replace(message, " ; ");
-                    sanitizedMessage = VerticalControlRegex.Replace(sanitizedMessage, " ");
-                    sanitizedMessage = sanitizedMessage.Trim();
-
-                    // Format: [2026-05-06 08:58:20+01:00] [INFO] Message text OR [2026-05-06 08:58:20Z] [INFO] Message text
-                    string logEntry = $"{FormatTimestampPrefix()} [{levelName}] | {sanitizedMessage}";
-
                     _writer.WriteLine(logEntry);
                 }
             }
@@ -469,7 +442,7 @@ namespace Servy.Core.Logging
                 {
                     // Fail-silent, but limit writes to prevent disk exhaustion.
                     // Interlocked is critical here as Log() can be called concurrently from multiple threads.
-                    if (Interlocked.Increment(ref _logFallbackWriteCount) <= MaxFallbackWrites)
+                    if (Interlocked.Increment(ref _logFallbackWriteCount) <= AppConfig.LoggerMaxFallbackWrites)
                     {
                         EnsureLogsDir();
                         File.AppendAllText(Path.Combine(LogsPath, "LoggerWriteErrors.log"),
@@ -513,11 +486,27 @@ namespace Servy.Core.Logging
         #region Private Helpers
 
         /// <summary>
+        /// Centralized parameterized pipeline to eliminate code duplication across target logging severities.
+        /// </summary>
+        /// <param name="targetLevel">The operational <see cref="LogLevel"/> required to validate execution.</param>
+        /// <param name="message">The text string content entry template block targeted for extraction.</param>
+        /// <param name="ex">An optional <see cref="Exception"/> context structure hook to process and bind.</param>
+        private static void WriteLeveled(LogLevel targetLevel, string? message, Exception? ex)
+        {
+            if (string.IsNullOrEmpty(message)) return;
+
+            if ((LogLevel)_currentLogLevel <= targetLevel)
+            {
+                Log(targetLevel, ex != null ? $"{message} | Exception: {FormatException(ex)}" : message);
+            }
+        }
+
+        /// <summary>
         /// Validates that the logging directory exists and applies the required security descriptors to protect log integrity.
         /// </summary>
         private static void EnsureLogsDir()
         {
-            // LOGIC: Uses SecurityHelper to create the directory with specific permissions
+            // Uses SecurityHelper to create the directory with specific permissions
             SecurityHelper.CreateSecureDirectory(LogsPath, breakInheritance: false);
         }
 
@@ -568,9 +557,7 @@ namespace Servy.Core.Logging
                 if (!string.IsNullOrWhiteSpace(current.StackTrace))
                 {
                     // Sanitize the stack trace for single-line output
-                    var sanitizedStack = LineBreakingRegex.Replace(current.StackTrace, " ; ");
-                    sanitizedStack = VerticalControlRegex.Replace(sanitizedStack, " ");
-                    sanitizedStack = sanitizedStack.Trim();
+                    var sanitizedStack = SanitizeToSingleLine(current.StackTrace);
 
                     sb.Append(" (at ").Append(sanitizedStack).Append(')');
                 }
@@ -654,8 +641,19 @@ namespace Servy.Core.Logging
         private static string FormatTimestampPrefix()
         {
             var now = _useLocalTimeForRotation ? DateTime.Now : DateTime.UtcNow;
-            string tzMarker = _useLocalTimeForRotation ? now.ToString("zzz") : "Z";
+            string tzMarker = _useLocalTimeForRotation ? now.ToString("zzz", CultureInfo.InvariantCulture) : "Z";
             return $"[{now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)}{tzMarker}]";
+        }
+
+        /// <summary>
+        /// Collapses any line breaks / vertical control chars into a single scannable line.
+        /// </summary>
+        /// <param name="text">Text to sanitize.</param>
+        private static string SanitizeToSingleLine(string text)
+        {
+            var s = LineBreakingRegex.Replace(text, " ; ");
+            s = VerticalControlRegex.Replace(s, " ");
+            return s.Trim();
         }
 
         #endregion

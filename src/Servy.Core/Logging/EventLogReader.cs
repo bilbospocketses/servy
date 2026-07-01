@@ -8,10 +8,10 @@ namespace Servy.Core.Logging
     /// <summary>
     /// Wraps <see cref="System.Diagnostics.Eventing.Reader.EventLogReader"/> to allow mocking in unit tests.
     /// </summary>
-    [ExcludeFromCodeCoverage]
     public class EventLogReader : IEventLogReader
     {
-        ///<inheritdoc/>
+        /// <inheritdoc/>
+        [ExcludeFromCodeCoverage]
         public IEnumerable<ServyEventLogEntry> ReadEvents(EventLogQuery query, int maxReadCount)
         {
             using (var reader = new System.Diagnostics.Eventing.Reader.EventLogReader(query))
@@ -53,7 +53,7 @@ namespace Servy.Core.Logging
         /// A populated <see cref="ServyEventLogEntry"/> containing the formatted message,
         /// event id, level, provider name and timestamp pulled from <paramref name="evt"/>.
         /// </returns>
-        private static ServyEventLogEntry MapToDto(EventRecord evt)
+        internal static ServyEventLogEntry MapToDto(EventRecord evt)
         {
             int eventId = 0;
             DateTimeOffset time = DateTimeOffset.MinValue;
@@ -119,19 +119,27 @@ namespace Servy.Core.Logging
         /// The converted <see cref="DateTimeOffset"/>; or <see cref="DateTimeOffset.MinValue"/> if the input is null.
         /// </returns>
         /// <remarks>
-        /// .evtx timestamps are persisted as UTC FILETIMEs. This method explicitly coerces the input 
-        /// <see cref="DateTimeKind"/> to <see cref="DateTimeKind.Utc"/> before conversion to prevent 
-        /// local-offset arithmetic, which can trigger an <see cref="ArgumentOutOfRangeException"/> 
-        /// for values approaching <see cref="DateTime.MinValue"/>.
+        /// .evtx timestamps are persisted as UTC FILETIMEs. This method evaluates the incoming 
+        /// <see cref="DateTimeKind"/> to preserve correct offsets while preventing local-offset 
+        /// arithmetic overflows for values approaching <see cref="DateTime.MinValue"/>.
         /// </remarks>
-        private static DateTimeOffset SafeToOffset(DateTime? raw)
+        internal static DateTimeOffset SafeToOffset(DateTime? raw)
         {
             if (!raw.HasValue) return DateTimeOffset.MinValue;
 
-            // .evtx timestamps are persisted as UTC FILETIMEs; coerce Kind to remove the
-            // local-offset arithmetic that overflows for near-MinValue inputs.
-            var utc = DateTime.SpecifyKind(raw.Value, DateTimeKind.Utc);
-            return new DateTimeOffset(utc, TimeSpan.Zero);
+            // Guard against edge cases near MinValue that would overflow during local offset shifts
+            if (raw.Value < DateTime.MinValue.AddDays(1))
+                return DateTimeOffset.MinValue;
+
+            // If the framework passes it as explicitly UTC, 
+            // project it directly with a Zero offset to satisfy the UTC contract.
+            if (raw.Value.Kind == DateTimeKind.Utc )
+            {
+                return new DateTimeOffset(DateTime.SpecifyKind(raw.Value, DateTimeKind.Utc), TimeSpan.Zero);
+            }
+
+            // Otherwise, handle it safely as local system time (observed as UTC+1 during local non-DST)
+            return new DateTimeOffset(raw.Value);
         }
     }
 }

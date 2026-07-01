@@ -6,7 +6,8 @@ function Write-ServyLog {
     param(
         [Parameter(Mandatory=$true)][string]$FilePath,
         [Parameter(Mandatory=$true)][string]$Message,
-        [int]$MaxSizeBytes = 1048576 # 1 MB limit
+        [int]$MaxSizeBytes   = 1048576, # 1 MB limit
+        [int]$MaxBackupFiles = 10
     )
 
     try {
@@ -22,8 +23,7 @@ function Write-ServyLog {
             $hashString = [System.BitConverter]::ToString($hashBytes).Replace('-', '')
         } finally {
             $sha.Dispose()
-        }
-        
+        }        
         
         try {
             $mutex = New-Object System.Threading.Mutex($false, "Global\ServyLog_$hashString")
@@ -55,12 +55,14 @@ function Write-ServyLog {
                 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
             }
 
+            $inv = [System.Globalization.CultureInfo]::InvariantCulture
+
             # Handle log rotation if it exceeds max size (Now safely inside the Mutex)
             if (Test-Path $absPath) {
                 $fileInfo = Get-Item $absPath
                 if ($fileInfo.Length -gt $MaxSizeBytes) {
                     # Rotate using local time to maintain chronologic consistency
-                    $localTime = Get-Date -Format "yyyyMMdd-HHmmss-fff"
+                    $localTime = (Get-Date).ToString('yyyyMMdd-HHmmss-fff', $inv)
                     $ext = [System.IO.Path]::GetExtension($absPath)
                     $baseName = [System.IO.Path]::GetFileNameWithoutExtension($absPath)
                     
@@ -71,7 +73,7 @@ function Write-ServyLog {
                     if ([System.IO.File]::Exists($target)) {
                         $attempt = 0
                         do {
-                            if ($attempt -gt 0) { Start-Sleep -Milliseconds 1; $localTime = Get-Date -Format "yyyyMMdd-HHmmss-fff" }
+                            if ($attempt -gt 0) { Start-Sleep -Milliseconds 1; $localTime = (Get-Date).ToString('yyyyMMdd-HHmmss-fff', $inv) }
                             $rotatedFileName = "{0}_{1}{2}" -f $baseName, $localTime, $ext
                             $target = Join-Path $logDir $rotatedFileName
                             $attempt++
@@ -81,17 +83,16 @@ function Write-ServyLog {
                     # Use .NET IO for atomic renaming; Rename-Item can exhibit quirky behavior under load
                     [System.IO.File]::Move($absPath, $target)
 
-                    $keepCount = 10
                     $rotatedPattern = "${baseName}_*${ext}"
                     Get-ChildItem -Path $logDir -Filter $rotatedPattern -ErrorAction SilentlyContinue |
                         Sort-Object LastWriteTime -Descending |
-                        Select-Object -Skip $keepCount |
+                        Select-Object -Skip $MaxBackupFiles |
                         Remove-Item -Force -ErrorAction SilentlyContinue
                 }
             }
 
             # Enforce consistent UTF-8 logging with no BOM/UTF-16LE mix-ups
-            $timestampedMsg = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message"
+            $timestampedMsg = "$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss', $inv)) - $Message"
             
             # Use FileStream with FileShare.None inside the Mutex lock. 
             # This completely eliminates interleaved lines or swallowed "file in use" exceptions.

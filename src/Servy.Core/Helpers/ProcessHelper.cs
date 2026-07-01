@@ -99,8 +99,11 @@ namespace Servy.Core.Helpers
                 if (parentToChildren.TryGetValue(current, out var children))
                 {
                     // 3. Only process the child if we haven't seen it before
-                    foreach (var child in children.Where(visited.Add))
+                    foreach (var child in children)
                     {
+                        if (!visited.Add(child))
+                            continue;   // already seen - cycle/duplicate protection
+
                         // Validate child creation temporal boundary to ensure it is not a recycled PID phantom
                         try
                         {
@@ -179,8 +182,10 @@ namespace Servy.Core.Helpers
                 catch (ArgumentException) { /* Process gone */ }
                 catch (Win32Exception ex)
                 {
-                    // Access denied or query failed; treat as dead so we evict the cache entry.
-                    Logger.Debug($"MaintainCache: cannot query PID {pid} ({ex.Message}); evicting.");
+                    // Access denied or query failed; process is highly likely still running under elevated/protected context.
+                    // Keep the sample entry active to retain baseline delta continuity.
+                    isAlive = true;
+                    Logger.Debug($"MaintainCache: PID {pid} returned access denied ({ex.Message}); keeping cache sample active.");
                 }
                 catch (InvalidOperationException ex)
                 {

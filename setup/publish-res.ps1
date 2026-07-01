@@ -9,7 +9,7 @@
     2. Locates the produced build/publish output folders.
     3. Copies the generated single-file executable and PDB files into the specified
        target Resources directory so they can be embedded in Servy builds.
-    4. Optionally appends an additional suffix (e.g., '.CLI') to the output files.
+    4. Optionally appends an additional suffix (e.g., 'CLI') to the output files.
 
 .PARAMETER ProjectName
     The name of the source project (e.g., "Servy.Service", "Servy.Restarter").
@@ -61,8 +61,7 @@ $sourceDir = Join-Path $scriptDir "..\src\$ProjectName"
 
 # Prevent Resolve-Path errors on clean environments
 if (-not (Test-Path $sourceDir)) {
-    Write-Error "CRITICAL: Project directory not found at $sourceDir"
-    return
+    throw "CRITICAL: Project directory not found at $sourceDir"
 }
 
 # Ensure the target resources folder exists, but resolve its full path first
@@ -76,8 +75,7 @@ if (-not (Test-Path $TargetResourcesFolder)) {
 # ---------------------------------------------------------------------------------
 $publishScript = Join-Path $sourceDir "publish.ps1"
 if (-not (Test-Path $publishScript)) {
-    Write-Error "Required script not found: $publishScript"
-    return
+    throw "Required script not found: $publishScript"
 }
 
 Write-Host "=== [$ProjectName] Running publish.ps1 ==="

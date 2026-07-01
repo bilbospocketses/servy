@@ -26,10 +26,10 @@ namespace Servy.Core.Services
         /// <summary>The command line arguments to pass to the real executable.</summary>
         public string? RealArgs { get; set; }
 
-        /// <summary>The service startup type (Automatic, Manual, Disabled).</summary>
+        /// <summary>The service startup type (Automatic, AutomaticDelayedStart, Manual, Disabled).</summary>
         public ServiceStartType StartType { get; set; } = AppConfig.DefaultStartupType;
 
-        /// <summary>Optional process priority for the service. Defaults to Normal.</summary>
+        /// <summary>Optional process priority for the service. Defaults to <see cref="AppConfig.DefaultProcessPriority"/>.</summary>
         public ProcessPriority ProcessPriority { get; set; } = AppConfig.DefaultProcessPriority;
 
         /// <summary>Whether to enable the console user interface for the service.</summary>
@@ -44,31 +44,28 @@ namespace Servy.Core.Services
         /// <summary>Enable size-based log rotation.</summary>
         public bool EnableSizeRotation { get; set; } = AppConfig.DefaultEnableSizeRotation;
 
-        /// <summary>Size in bytes for log rotation. If 0, no rotation is performed.</summary>
+        /// <summary>Size threshold in bytes that triggers a log rotation. Only used when <see cref="EnableSizeRotation"/> is true; the value is clamped to a minimum of 1 MB.</summary>
         public long RotationSizeInBytes { get; set; } = AppConfig.ToBytes(AppConfig.DefaultRotationSizeMB);
 
-        /// <summary>
-        /// Gets or sets a value indicating whether to use local system time for log rotation.
-        /// Default is <c>false</c> (UTC).
-        /// </summary>
+        /// <summary>Use local system time (instead of UTC) for log rotation. Defaults to <see cref="AppConfig.DefaultUseLocalTimeForRotation"/>.</summary>
         public bool UseLocalTimeForRotation { get; set; } = AppConfig.DefaultUseLocalTimeForRotation;
 
         /// <summary>Enable health monitoring.</summary>
         public bool EnableHealthMonitoring { get; set; } = AppConfig.DefaultEnableHealthMonitoring;
 
-        /// <summary>Heartbeat interval in seconds for the process. If 0, health monitoring is disabled.</summary>
+        /// <summary>Heartbeat interval in seconds for the process. Only used when <see cref="EnableHealthMonitoring"/> is true; must be between <see cref="AppConfig.MinHeartbeatInterval"/> and <see cref="AppConfig.MaxHeartbeatInterval"/>.</summary>
         public int HeartbeatInterval { get; set; } = AppConfig.DefaultHeartbeatInterval;
 
-        /// <summary>Maximum number of failed health checks before the service is considered unhealthy. If 0, health monitoring is disabled.</summary>
+        /// <summary>Maximum number of failed health checks before the service is considered unhealthy. Only used when <see cref="EnableHealthMonitoring"/> is true.</summary>
         public int MaxFailedChecks { get; set; } = AppConfig.DefaultMaxFailedChecks;
 
-        /// <summary>Recovery action to take if the service fails. If None, health monitoring is disabled.</summary>
+        /// <summary>Recovery action to take if the service fails. Only used when <see cref="EnableHealthMonitoring"/> is true.</summary>
         public RecoveryAction RecoveryAction { get; set; } = AppConfig.DefaultRecoveryAction;
 
-        /// <summary>Whether to run recovery action even if the process exits successfully. </summary>
+        /// <summary>Whether to run recovery action even if the process exits successfully. Only used when <see cref="EnableHealthMonitoring"/> is true.</summary>
         public bool RecoveryOnCleanExit { get; set; } = AppConfig.DefaultRecoveryOnCleanExit;
 
-        /// <summary>Maximum number of restart attempts if the service fails.</summary>
+        /// <summary>Maximum number of restart attempts if the service fails. Only used when <see cref="EnableHealthMonitoring"/> is true.</summary>
         public int MaxRestartAttempts { get; set; } = AppConfig.DefaultMaxRestartAttempts;
 
         /// <summary>Failure program path.</summary>
@@ -110,7 +107,7 @@ namespace Servy.Core.Services
         /// <summary>Optional path for pre-launch standard error redirection. If null, no redirection is performed.</summary>
         public string? PreLaunchStderrPath { get; set; }
 
-        /// <summary>Pre-launch script timeout in seconds. Default is 30 seconds.</summary>
+        /// <summary>Pre-launch script timeout in seconds. Defaults to <see cref="AppConfig.DefaultPreLaunchTimeoutSeconds"/>.</summary>
         public int PreLaunchTimeout { get; set; } = AppConfig.DefaultPreLaunchTimeoutSeconds;
 
         /// <summary>Pre-launch script retry attempts.</summary>
@@ -134,13 +131,13 @@ namespace Servy.Core.Services
         /// <summary>The Display Name of the service, shown in the Windows Services management console (<c>services.msc</c>).</summary>
         public string? DisplayName { get; set; }
 
-        /// <summary>The maximum number of rotated log file to keep. Set to 0 for unlimited.</summary>
+        /// <summary>The maximum number of rotated log files to keep. Set to 0 for unlimited.</summary>
         public int MaxRotations { get; set; } = AppConfig.DefaultMaxRotations;
 
         /// <summary>Enables rotation based on the date interval specified by <see cref="DateRotationType"/>.</summary>
         public bool EnableDateRotation { get; set; } = AppConfig.DefaultEnableDateRotation;
 
-        /// <summary>Defines the date-based rotation schedule (daily, weekly, or monthly).</summary>
+        /// <summary>Defines the date-based rotation schedule (daily, weekly, or monthly). Only used when <see cref="EnableDateRotation"/> is true.</summary>
         public DateRotationType DateRotationType { get; set; } = AppConfig.DefaultDateRotationType;
 
         /// <summary>The timeout in seconds to wait for the process to start successfully before considering the startup as failed.</summary>

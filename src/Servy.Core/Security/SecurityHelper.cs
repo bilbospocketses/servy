@@ -60,16 +60,9 @@ namespace Servy.Core.Security
                     // Create the directory with the hardened security descriptor in a single operation.
                     FileSystemAclExtensions.CreateDirectory(ds, path);
                 }
-                catch (UnauthorizedAccessException ex) when (!IsAdministrator() && !breakInheritance)
+                catch (UnauthorizedAccessException ex) when (!breakInheritance && !IsAdministrator())
                 {
-                    // GRACEFUL FALLBACK: 
-                    // If we are a non-admin service account managing a child folder, the Root Vault 
-                    // (parent folder) was already secured by the Administrator during installation.
-                    // Because breakInheritance is false, the OS is already enforcing security via 
-                    // inheritance, making it safe to proceed without crashing the service.
-                    Logger.Warn(
-                        $"Could not atomically create hardened directory '{path}' as non-admin. " +
-                        $"Falling back to standard environmental creation rules. Verify parent vault is secured. ({ex.Message})");
+                    HandleNonAdminFallback(ex, $"Could not atomically create hardened directory '{path}' as non-admin. Falling back to standard environmental creation rules. Verify parent vault is secured.");
                 }
             }
             else
@@ -91,25 +84,18 @@ namespace Servy.Core.Security
 
                     dirInfo.SetAccessControl(security);
                 }
-                catch (UnauthorizedAccessException ex) when (!IsAdministrator() && !breakInheritance)
+                catch (UnauthorizedAccessException ex) when (!breakInheritance && !IsAdministrator())
                 {
-                    // GRACEFUL FALLBACK: 
-                    // If we are a non-admin service account managing a child folder, the Root Vault 
-                    // (parent folder) was already secured by the Administrator during installation.
-                    // Because breakInheritance is false, the OS is already enforcing security via 
-                    // inheritance, making it safe to proceed without crashing the service.
-                    Logger.Warn(
-                        $"Could not write hardened ACL on '{path}' as non-admin. " +
-                        $"Falling back to inherited permissions from parent. Verify parent vault is secured. ({ex.Message})");
+                    HandleNonAdminFallback(ex, $"Could not write hardened ACL on '{path}' as non-admin. Falling back to inherited permissions from parent. Verify parent vault is secured.");
                 }
             }
         }
 
         /// <summary>
-        /// Configures a <see cref="DirectorySecurity"/> object with restrictive rules, 
+        /// Configures a <see cref="FileSystemSecurity"/> object with restrictive rules, 
         /// purging broad group access and optionally managing inheritance boundaries.
         /// </summary>
-        /// <param name="security">The security descriptor to modify.</param>
+        /// <param name="security">The file or directory security descriptor to modify.</param>
         /// <param name="currentUserSid">
         /// The SID of the current user to conditionally grant access to. 
         /// Usually retrieved via <see cref="WindowsIdentity.User"/>.
@@ -147,12 +133,12 @@ namespace Servy.Core.Security
         /// <item>
         /// <description>
         /// <b>Operational Continuity:</b> Grants <c>Full Control</c> to the current process user if they 
-        /// are not the LocalSystem account.
+        /// are not a member of the Administrators group and are not the LocalSystem account.
         /// </description>
         /// </item>
         /// </list>
         /// </remarks>
-        internal static void ApplySecurityRules(DirectorySecurity security, IdentityReference? currentUserSid, bool breakInheritance = true)
+        public static void ApplySecurityRules(FileSystemSecurity security, IdentityReference? currentUserSid, bool breakInheritance = true)
         {
             // 1. Manage Inheritance Boundaries
             if (breakInheritance)
@@ -203,20 +189,24 @@ namespace Servy.Core.Security
                 }
             }
 
-            var accessFlags = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
+            // Determine inheritance flags safely based on object descriptor target type
+            bool isDirectory = security is DirectorySecurity;
+            var inheritanceFlags = isDirectory ? (InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit) : InheritanceFlags.None;
+            var propagationFlags = isDirectory ? PropagationFlags.None : PropagationFlags.None;
 
             // 4. Add mandatory high-privilege rules
-            security.AddAccessRule(new FileSystemAccessRule(adminSid, FileSystemRights.FullControl, accessFlags, PropagationFlags.None, AccessControlType.Allow));
-            security.AddAccessRule(new FileSystemAccessRule(systemSid, FileSystemRights.FullControl, accessFlags, PropagationFlags.None, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(adminSid, FileSystemRights.FullControl, inheritanceFlags, propagationFlags, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(systemSid, FileSystemRights.FullControl, inheritanceFlags, propagationFlags, AccessControlType.Allow));
 
             // 5. Add current user key
             // We grant explicit Full Control to the current user unless they are the 
-            // LocalSystem account (which is already covered in Step 4). 
+            // LocalSystem account (which is already covered in Step 4) or have administrator privileges.
             bool isSystem = currentUserSid != null && currentUserSid.Equals(systemSid);
+            bool isAdmin = IsAdministrator();
 
-            if (currentUserSid != null && !isSystem)
+            if (currentUserSid != null && !isSystem && !isAdmin)
             {
-                security.AddAccessRule(new FileSystemAccessRule(currentUserSid, FileSystemRights.FullControl, accessFlags, PropagationFlags.None, AccessControlType.Allow));
+                security.AddAccessRule(new FileSystemAccessRule(currentUserSid, FileSystemRights.FullControl, inheritanceFlags, propagationFlags, AccessControlType.Allow));
             }
         }
 
@@ -254,6 +244,21 @@ namespace Servy.Core.Security
             {
                 throw new UnauthorizedAccessException("This operation requires administrator privileges.");
             }
+        }
+
+        /// <summary>
+        /// Handles non-administrator filesystem operational fallback conditions safely when inheritance rules are active.
+        /// </summary>
+        /// <param name="ex">The underlying unauthorized access exception intercepted during directory configuration routines.</param>
+        /// <param name="message">The specific descriptive operational warning contextual payload message string to append to the log logs stream.</param>
+        private static void HandleNonAdminFallback(UnauthorizedAccessException ex, string message)
+        {
+            // GRACEFUL FALLBACK: 
+            // If we are a non-admin service account managing a child folder, the Root Vault 
+            // (parent folder) was already secured by the Administrator during installation.
+            // Because breakInheritance is false, the OS is already enforcing security via 
+            // inheritance, making it safe to proceed without crashing the service.
+            Logger.Warn($"{message} ({ex.Message})");
         }
     }
 }

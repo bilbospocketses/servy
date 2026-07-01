@@ -4,7 +4,6 @@ using Servy.Core.Enums;
 using Servy.Core.Helpers;
 using Servy.Core.Logging;
 using Servy.Service.CommandLine;
-using Servy.Service.Helpers;
 using Servy.Service.ProcessManagement;
 using Servy.Service.StreamWriters;
 using Servy.Service.Timers;
@@ -17,12 +16,10 @@ namespace Servy.Service.UnitTests
 {
     public class EventHandlerTests
     {
-        private readonly Mock<IProcessHelper> _mockProcessHelper;
         private readonly Mock<IProcessKiller> _mockProcessKiller;
 
         public EventHandlerTests()
         {
-            _mockProcessHelper = new Mock<IProcessHelper>();
             _mockProcessKiller = new Mock<IProcessKiller>();
         }
 
@@ -54,7 +51,6 @@ namespace Servy.Service.UnitTests
                 mockProcessFactory.Object,
                 mockPathValidator.Object,
                 mockServiceRepository.Object,
-                _mockProcessHelper.Object,
                 _mockProcessKiller.Object
                 );
         }
@@ -93,8 +89,8 @@ namespace Servy.Service.UnitTests
             // Arrange
             var startOptions = new StartOptions
             {
-                StdOutPath = "valid-path.log",
-                StdErrPath = "error-path.log",
+                StdoutPath = "valid-path.log",
+                StderrPath = "error-path.log",
                 RotationSizeInBytes = 1024 * 1024
             };
 
@@ -116,7 +112,7 @@ namespace Servy.Service.UnitTests
         }
 
         [Fact]
-        public void OnErrorDataReceived_WritesToRotatingWriters_LogsError_IgnoresNullOrEmpty()
+        public void OnErrorDataReceived_WritesToRotatingWriters_IgnoresNullOrEmpty()
         {
             var service = CreateService(
                 out var logger,
@@ -137,8 +133,8 @@ namespace Servy.Service.UnitTests
             // Arrange
             var startOptions = new StartOptions
             {
-                StdOutPath = "valid-path.log",
-                StdErrPath = "error-path.log",
+                StdoutPath = "valid-path.log",
+                StderrPath = "error-path.log",
                 RotationSizeInBytes = 1024 * 1024
             };
 
@@ -153,9 +149,6 @@ namespace Servy.Service.UnitTests
 
             // Assert write called once for non-empty error data
             mockWriter.Verify(w => w.WriteLine("error line"), Times.Once);
-
-            // Assert logger logged error once for non-empty data
-            //logger.Verify(l => l.Error(It.Is<string>(s => s.Contains("error line")), It.IsAny<Exception>()), Times.Once);
         }
 
         [Fact]
@@ -171,8 +164,6 @@ namespace Servy.Service.UnitTests
                 out var serviceRepository);
 
             var mockProcess = new Mock<IProcessWrapper>();
-            mockProcess.Setup(p => p.Id).Returns(42);
-            mockProcess.Setup(p => p.HasExited).Returns(true);
             mockProcess.Setup(p => p.ExitCode).Returns(0);
 
             service.SetChildProcess(mockProcess.Object);
@@ -227,30 +218,6 @@ namespace Servy.Service.UnitTests
             service.InvokeOnProcessExited(null, EventArgs.Empty);
 
             // Assert
-            logger.Verify(l => l.Warn(It.Is<string>(s => s.Contains("Failed to get exit code")), It.IsAny<Exception>()), Times.Once);
-        }
-
-        [Fact]
-        public void OnProcessExited_LogsErrorOnExitCodeException()
-        {
-            var service = CreateService(
-                out var logger,
-                out var helper,
-                out var swFactory,
-                out var timerFactory,
-                out var processFactory,
-                out var pathValidator,
-                out var serviceRepository);
-
-            var mockProcess = new Mock<IProcessWrapper>();
-            mockProcess.Setup(p => p.Id).Returns(42);
-            mockProcess.Setup(p => p.HasExited).Returns(true);
-            mockProcess.Setup(p => p.ExitCode).Throws(new Exception("Access denied"));
-
-            service.SetChildProcess(mockProcess.Object);
-
-            service.InvokeOnProcessExited(null, EventArgs.Empty);
-
             logger.Verify(l => l.Warn(It.Is<string>(s => s.Contains("Failed to get exit code")), It.IsAny<Exception>()), Times.Once);
         }
     }

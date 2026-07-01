@@ -34,9 +34,9 @@
     <AssemblyDescription>Servy Command Line Interface</AssemblyDescription>
     <Company>Akram El Assas</Company>
     <Product>Servy.CLI</Product>
-    <Version>8.5.0</Version>
-    <FileVersion>8.5.0.0</FileVersion>
-    <AssemblyVersion>8.5.0.0</AssemblyVersion>
+    <Version>8.6.0</Version>
+    <FileVersion>8.6.0.0</FileVersion>
+    <AssemblyVersion>8.6.0.0</AssemblyVersion>
     <Copyright>Copyright © 2026 Akram El Assas. All rights reserved.</Copyright>
     <ApplicationIcon>servy.ico</ApplicationIcon>
   </PropertyGroup>
@@ -64,7 +64,7 @@
 
   <ItemGroup>
     <PackageReference Include="CommandLineParser" Version="2.9.1" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.9" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
   </ItemGroup>
 

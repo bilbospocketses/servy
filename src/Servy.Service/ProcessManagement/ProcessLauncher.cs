@@ -1,4 +1,5 @@
 ﻿using Servy.Core.Config;
+using Servy.Core.EnvironmentVariables;
 using Servy.Core.Helpers;
 using Servy.Core.Logging;
 using System.Diagnostics;
@@ -18,9 +19,13 @@ namespace Servy.Service.ProcessManagement
         /// </summary>
         /// <remarks>
         /// <para>
-        /// The pattern <c>(^|\s)-Dfile\.encoding([=\s]|$)</c> is designed to avoid false positives by ensuring the 
+        /// The pattern <c>(^|\s)(-J)?-Dfile\.encoding([=\s]|$)</c> is designed to avoid false positives by ensuring the 
         /// flag is at the start of the string or preceded by whitespace, and followed by an assignment or a delimiter. 
         /// This prevents matching similar substrings inside file paths or JAR names.
+        /// </para>
+        /// <para>
+        /// The optional <c>(-J)?</c> prefix group handles compiler contexts, ensuring that the alternative 
+        /// <c>javac</c> parameter format (<c>-J-Dfile.encoding</c>) is successfully intercepted.
         /// </para>
         /// <para>
         /// This regex uses <see cref="RegexOptions.Compiled"/> for performance during process startup and 
@@ -29,18 +34,72 @@ namespace Servy.Service.ProcessManagement
         /// </para>
         /// </remarks>
         private static readonly Regex JavaFileEncodingRegex = new Regex(
-            @"(^|\s)-Dfile\.encoding([=\s]|$)",
+            @"(^|\s)(-J)?-Dfile\.encoding([=\s]|$)",
             RegexOptions.Compiled | RegexOptions.CultureInvariant, // Java property names are case-sensitive
             AppConfig.InputRegexTimeout);
 
         /// <summary>
         /// Matches canonical Python launcher executable names strictly.
-        /// Evaluates patterns such as 'python', 'pythonw', 'python2', 'python3', 'python3.x' 'py', or 'pyw' without capturing arbitrary prefixes.
+        /// Evaluates patterns such as 'python', 'pythonw', 'python2', 'python3', 'python3.x', 'py', or 'pyw' without capturing arbitrary prefixes.
         /// </summary>
         private static readonly Regex PythonExeRegex = new Regex(
              @"^(python(w|\d+(\.\d+)?)?|pyw?)$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
             AppConfig.InputRegexTimeout);
+
+        /// <summary>
+        /// Instantiates and configures a standard <see cref="ProcessStartInfo"/> with service-safe defaults,
+        /// environment block expansion, and cross-runtime language infrastructure corrections.
+        /// </summary>
+        /// <param name="executablePath">The full path or binary name of the external executable file to spawn.</param>
+        /// <param name="arguments">The raw command-line arguments to pass to the executable; can be null or empty.</param>
+        /// <param name="workingDirectory">The startup working directory for the process. If null or whitespace, defaults to the executable's directory location.</param>
+        /// <param name="environmentVariables">A list of <see cref="EnvironmentVariable"/> objects containing custom keys and values to inject into the execution scope.</param>
+        /// <param name="enableConsoleUI">If set to <c>true</c>, preserves standard I/O handles and shows the window; if <c>false</c>, hides the process window and redirects streams for logging capture.</param>
+        /// <param name="logger">The <see cref="IServyLogger"/> instance used to emit environmental auditing and telemetry data; can be null.</param>
+        /// <param name="auditContext">A descriptive keyword or method name specifying the operational scope to include in security audit trail logs.</param>
+        /// <returns>An initialized and configured <see cref="ProcessStartInfo"/> object ready to be passed to a process factory or wrapper instance.</returns>
+        public static ProcessStartInfo CreateStartInfo(
+            string executablePath,
+            string arguments,
+            string workingDirectory,
+            List<EnvironmentVariable> environmentVariables,
+            bool enableConsoleUI,
+            IServyLogger? logger,
+            string auditContext)
+        {
+            // 1. Resolve environment variables and arguments
+            var (expandedEnv, finalArgs) = Helpers.ProcessHelper.ExpandAndAudit(environmentVariables, arguments ?? string.Empty, logger, auditContext);
+
+            // 2. Configure ProcessStartInfo with unified defaults
+            var psi = new ProcessStartInfo
+            {
+                FileName = executablePath,
+                Arguments = finalArgs,
+                WorkingDirectory = workingDirectory ?? Path.GetDirectoryName(executablePath) ?? string.Empty,
+                UseShellExecute = false,
+                CreateNoWindow = !enableConsoleUI,
+                RedirectStandardOutput = !enableConsoleUI,
+                RedirectStandardError = !enableConsoleUI,
+            };
+
+            if (!enableConsoleUI)
+            {
+                psi.StandardOutputEncoding = Encoding.UTF8;
+                psi.StandardErrorEncoding = Encoding.UTF8;
+            }
+
+            // 3. Apply the environment block
+            foreach (var envVar in expandedEnv)
+            {
+                psi.Environment[envVar.Key] = envVar.Value ?? string.Empty;
+            }
+
+            // 4. Apply runtime-specific fixes
+            ApplyLanguageFixes(psi, logger);
+
+            return psi;
+        }
 
         /// <summary>
         /// Orchestrates the initialization and startup of an external process based on the provided options.
@@ -74,42 +133,25 @@ namespace Servy.Service.ProcessManagement
                     nameof(options));
             }
 
-            // 1. Resolve environment variables and arguments
-            var (expandedEnv, finalArgs) = Helpers.ProcessHelper.ExpandAndAudit(options.EnvironmentVariables, options.Arguments ?? string.Empty, logger);
-
-            // 2. Configure ProcessStartInfo with service-safe defaults
+            // 1. Delegate generation to our unified static factory step
             var redirectOutput = !options.EnableConsoleUI && options.RedirectToWriters && !options.FireAndForget;
-            var psi = new ProcessStartInfo
-            {
-                FileName = options.ExecutablePath,
-                Arguments = finalArgs,
-                WorkingDirectory = options.WorkingDirectory ?? Path.GetDirectoryName(options.ExecutablePath) ?? string.Empty,
-                UseShellExecute = false,
-                CreateNoWindow = !options.EnableConsoleUI,
-                RedirectStandardOutput = redirectOutput && !string.IsNullOrWhiteSpace(options.StdOutPath),
-                RedirectStandardError = redirectOutput && !string.IsNullOrWhiteSpace(options.StdErrPath),
-            };
+            var psi = CreateStartInfo(
+                options.ExecutablePath,
+                options.Arguments ?? string.Empty,
+                options.WorkingDirectory!,
+                options.EnvironmentVariables!,
+                options.EnableConsoleUI,
+                logger,
+                "ProcessLauncher.Start");
 
-            if (psi.RedirectStandardOutput)
-            {
-                psi.StandardOutputEncoding = Encoding.UTF8;
-            }
+            // Overwrite redirection states explicitly since dependent side-hook tasks match tighter pipeline controls
+            psi.RedirectStandardOutput = redirectOutput && !string.IsNullOrWhiteSpace(options.StdoutPath);
+            psi.RedirectStandardError = redirectOutput && !string.IsNullOrWhiteSpace(options.StderrPath);
 
-            if (psi.RedirectStandardError)
-            {
-                psi.StandardErrorEncoding = Encoding.UTF8;
-            }
+            if (!psi.RedirectStandardOutput) psi.StandardOutputEncoding = null;
+            if (!psi.RedirectStandardError) psi.StandardErrorEncoding = null;
 
-            // 3. Apply the environment block
-            foreach (var envVar in expandedEnv)
-            {
-                psi.Environment[envVar.Key] = envVar.Value ?? string.Empty;
-            }
-
-            // 4. Apply runtime-specific fixes
-            ApplyLanguageFixes(psi);
-
-            // 5. Launch the process
+            // 2. Launch the process
             var process = factory.Create(psi, logger);
 
             // ROBUSTNESS: Track ownership. If the method fails before returning, 
@@ -123,8 +165,8 @@ namespace Servy.Service.ProcessManagement
             bool stdoutWriterFailed = false;
             bool stderrWriterFailed = false;
 
-            string? normalizedOut = Helper.NormalizePath(options.StdOutPath);
-            string? normalizedErr = Helper.NormalizePath(options.StdErrPath);
+            string? normalizedOut = Helper.NormalizePath(options.StdoutPath);
+            string? normalizedErr = Helper.NormalizePath(options.StderrPath);
 
             bool pathsMatch =
                 normalizedOut != null
@@ -141,7 +183,7 @@ namespace Servy.Service.ProcessManagement
                 }
                 processStarted = true;
 
-                // 6. Handle execution mode
+                // 3. Handle execution mode
                 if (options.FireAndForget)
                 {
                     returnedOwnership = true;
@@ -156,8 +198,8 @@ namespace Servy.Service.ProcessManagement
 
                 // Capture paths into local variables to satisfy null-safety analysis
                 // and ensure the closure uses a stable, non-null reference.
-                string? outPath = options.StdOutPath;
-                string? errPath = options.StdErrPath;
+                string? outPath = options.StdoutPath;
+                string? errPath = options.StderrPath;
 
                 // Setup StdOut Writer (Lazy Init)
                 if (psi.RedirectStandardOutput && !string.IsNullOrWhiteSpace(outPath))
@@ -174,18 +216,11 @@ namespace Servy.Service.ProcessManagement
 
                                 if (stdoutWriter == null)
                                 {
-                                    FileStream? stdoutFs = null;
-                                    try
+                                    // Outsource handwritten file generation block to helper
+                                    stdoutWriter = TryOpenAppendWriter(outPath, encoding, options.ExecutablePath, "stdout", logger);
+                                    if (stdoutWriter == null)
                                     {
-                                        Helper.EnsureDirectoryExists(outPath);
-                                        stdoutFs = new FileStream(outPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-                                        stdoutWriter = new StreamWriter(stdoutFs, encoding) { AutoFlush = true };
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        stdoutFs?.Dispose();
                                         stdoutWriterFailed = true;
-                                        logger.Error($"Disabling stdout capture for '{options.ExecutablePath}' after open failure: {ex.Message}", ex);
                                         return;
                                     }
                                 }
@@ -218,18 +253,11 @@ namespace Servy.Service.ProcessManagement
 
                                     if (stdoutWriter == null)
                                     {
-                                        FileStream? sharedFs = null;
-                                        try
+                                        // Utilize our unified log builder tool helper logic
+                                        stdoutWriter = TryOpenAppendWriter(outPath, encoding, options.ExecutablePath, "multiplexed stdout/stderr", logger);
+                                        if (stdoutWriter == null)
                                         {
-                                            Helper.EnsureDirectoryExists(outPath);
-                                            sharedFs = new FileStream(outPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-                                            stdoutWriter = new StreamWriter(sharedFs, encoding) { AutoFlush = true };
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            sharedFs?.Dispose();
                                             stdoutWriterFailed = true;
-                                            logger.Error($"Disabling multiplexed stdout/stderr capture for '{options.ExecutablePath}' after open failure: {ex.Message}", ex);
                                             return;
                                         }
                                     }
@@ -242,18 +270,11 @@ namespace Servy.Service.ProcessManagement
 
                                     if (stderrWriter == null)
                                     {
-                                        FileStream? stderrFs = null;
-                                        try
+                                        // Route calls seamlessly through shared infrastructure
+                                        stderrWriter = TryOpenAppendWriter(errPath, encoding, options.ExecutablePath, "stderr", logger);
+                                        if (stderrWriter == null)
                                         {
-                                            Helper.EnsureDirectoryExists(errPath);
-                                            stderrFs = new FileStream(errPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-                                            stderrWriter = new StreamWriter(stderrFs, encoding) { AutoFlush = true };
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            stderrFs?.Dispose();
                                             stderrWriterFailed = true;
-                                            logger.Error($"Disabling stderr capture for '{options.ExecutablePath}' after open failure: {ex.Message}", ex);
                                             return;
                                         }
                                     }
@@ -286,9 +307,14 @@ namespace Servy.Service.ProcessManagement
                 returnedOwnership = true;
                 return process;
             }
+            catch (TimeoutException)
+            {
+                throw; // already logged at the configured severity inside WaitForExitWithHeartbeat
+            }
             catch (Exception ex)
             {
-                logger.Error($"Failed during synchronous execution or log flushing for '{options.ExecutablePath}'.", ex);
+                string pathValue = options.ExecutablePath ?? string.Empty;
+                logger.Error($"Failed during synchronous execution or log flushing for '{pathValue}'.", ex);
                 throw;
             }
             finally
@@ -364,7 +390,8 @@ namespace Servy.Service.ProcessManagement
         /// Detection is strictly scoped to the executable filename and extension to avoid false positives from directory paths.
         /// </summary>
         /// <param name="psi">The start info to modify.</param>
-        public static void ApplyLanguageFixes(ProcessStartInfo psi)
+        /// <param name="logger">The logger instance for operational telemetry.</param>
+        public static void ApplyLanguageFixes(ProcessStartInfo psi, IServyLogger? logger)
         {
             if (psi == null || string.IsNullOrEmpty(psi.FileName))
             {
@@ -379,7 +406,7 @@ namespace Servy.Service.ProcessManagement
             try { isPython = PythonExeRegex.IsMatch(fileNameOnly); }
             catch (RegexMatchTimeoutException ex)
             {
-                Logger.Warn($"ApplyLanguageFixes: Python detection regex timed out on '{fileNameOnly}' ({ex.Message}); assuming not Python.");
+                logger?.Warn($"ApplyLanguageFixes: Python detection regex timed out on '{fileNameOnly}' ({ex.Message}); assuming not Python.");
                 isPython = false;
             }
 
@@ -392,13 +419,15 @@ namespace Servy.Service.ProcessManagement
             }
 
             // Java Logic: 
-            // Matches 'java', 'javaw', or 'javac'.
-            bool isJava =
+            // Separate 'javac' (Java Compiler) from 'java'/'javaw' (Java Runtime Engines)
+            // to support distinct flag formatting boundaries (-J-D vs -D).
+            bool isJavaRuntime =
                 string.Equals(fileNameOnly, "java", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(fileNameOnly, "javaw", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(fileNameOnly, "javac", StringComparison.OrdinalIgnoreCase);
+                string.Equals(fileNameOnly, "javaw", StringComparison.OrdinalIgnoreCase);
 
-            if (isJava)
+            bool isJavaCompiler = string.Equals(fileNameOnly, "javac", StringComparison.OrdinalIgnoreCase);
+
+            if (isJavaRuntime || isJavaCompiler)
             {
                 string currentArgs = psi.Arguments ?? string.Empty;
 
@@ -409,13 +438,22 @@ namespace Servy.Service.ProcessManagement
                 }
                 catch (RegexMatchTimeoutException ex)
                 {
-                    Logger.Warn($"ApplyLanguageFixes: -Dfile.encoding detection regex timed out on Java arguments ({ex.Message}); assuming not present.");
+                    logger?.Warn($"ApplyLanguageFixes: -Dfile.encoding detection regex timed out on Java arguments ({ex.Message}); assuming not present.");
                     hasEncoding = false;
                 }
 
                 if (!hasEncoding)
                 {
-                    psi.Arguments = $"-Dfile.encoding=UTF-8 {currentArgs}".Trim();
+                    if (isJavaCompiler)
+                    {
+                        // Prepend with the critical -J flag to prevent javac from rejecting the system property flag option
+                        psi.Arguments = $"-J-Dfile.encoding=UTF-8 {currentArgs}".Trim();
+                    }
+                    else
+                    {
+                        // Standard bare declaration assignment for java/javaw
+                        psi.Arguments = $"-Dfile.encoding=UTF-8 {currentArgs}".Trim();
+                    }
                 }
             }
         }
@@ -437,6 +475,33 @@ namespace Servy.Service.ProcessManagement
             if (!psi.Environment.ContainsKey(key))
             {
                 psi.Environment[key] = value;
+            }
+        }
+
+        /// <summary>
+        /// Attempts to initialize a file log writer in append mode with broad thread-sharing permissions.
+        /// Handles directory generation and isolates structural resource allocation leaks.
+        /// </summary>
+        /// <param name="path">The target destination absolute disk path for log output.</param>
+        /// <param name="encoding">The character text encoding sequence configuration standard.</param>
+        /// <param name="exePath">The executable filename descriptor context used for telemetry boundaries.</param>
+        /// <param name="scope">The functional scope name identifier used in generating error logs.</param>
+        /// <param name="logger">The operational logging instance to output tracing to.</param>
+        /// <returns>An active autoflushing <see cref="StreamWriter"/> instance if initialization succeeds; otherwise, <c>null</c>.</returns>
+        private static StreamWriter? TryOpenAppendWriter(string path, Encoding encoding, string exePath, string scope, IServyLogger logger)
+        {
+            FileStream? fs = null;
+            try
+            {
+                Helper.EnsureDirectoryExists(path);
+                fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+                return new StreamWriter(fs, encoding) { AutoFlush = true };
+            }
+            catch (Exception ex)
+            {
+                fs?.Dispose();
+                logger.Error($"Disabling {scope} capture for '{exePath}' after open failure: {ex.Message}", ex);
+                return null;
             }
         }
     }

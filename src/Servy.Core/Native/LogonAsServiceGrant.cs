@@ -13,6 +13,9 @@ namespace Servy.Core.Native
     {
         private const string SE_SERVICE_LOGON_NAME = "SeServiceLogonRight";
 
+        /// <summary>NTSTATUS: the referenced object name (e.g. LSA account entry) was not found.</summary>
+        private const int STATUS_OBJECT_NAME_NOT_FOUND = unchecked((int)0xC0000034);
+
         /// <summary>
         /// Ensures the specified account has the "Log on as a service" right.
         /// </summary>
@@ -20,8 +23,11 @@ namespace Servy.Core.Native
         /// The account to grant the right to. Can be a domain account (DOMAIN\user),
         /// or a local account (.\user or MACHINE_NAME\user).
         /// </param>
+        /// <exception cref="ArgumentException">Thrown if <paramref name="accountName"/> is null or whitespace.</exception>
         /// <exception cref="InvalidOperationException">
-        /// Thrown if the account cannot be resolved to a SID.
+        /// Thrown if the account cannot be resolved to a SID, or if an LSA operation
+        /// (LsaOpenPolicy / LsaEnumerateAccountRights / LsaAddAccountRights) fails - 
+        /// e.g. access denied when the caller is not running elevated.
         /// </exception>
         public static void Ensure(string accountName)
         {
@@ -82,6 +88,37 @@ namespace Servy.Core.Native
         }
 
         /// <summary>
+        /// Centralized helper to initialize object attributes, request an unmanaged LSA policy handle, and throw a formatted exception on error.
+        /// </summary>
+        private static IntPtr OpenPolicyOrThrow(uint accessMask)
+        {
+            var oa = new LSA_OBJECT_ATTRIBUTES
+            {
+                Length = Marshal.SizeOf<LSA_OBJECT_ATTRIBUTES>()
+            };
+
+            int status = LsaOpenPolicy(IntPtr.Zero, ref oa, accessMask, out IntPtr policy);
+            if (status != 0)
+            {
+                var msg = GetWin32ErrorMessage(status);
+                throw new InvalidOperationException($"LsaOpenPolicy failed: {msg} (NTSTATUS 0x{status:X})");
+            }
+
+            return policy;
+        }
+
+        /// <summary>
+        /// Allocates unmanaged HGlobal memory and copies a SecurityIdentifier's binary layout into it.
+        /// </summary>
+        private static IntPtr AllocAndCopySid(SecurityIdentifier sid)
+        {
+            byte[] sidBytes = sid.GetBinaryForm();
+            IntPtr sidPtr = Marshal.AllocHGlobal(sidBytes.Length);
+            Marshal.Copy(sidBytes, 0, sidPtr, sidBytes.Length);
+            return sidPtr;
+        }
+
+        /// <summary>
         /// Checks whether the specified account already has the "Log on as a service" right.
         /// </summary>
         /// <param name="sid">The security identifier of the account.</param>
@@ -94,29 +131,18 @@ namespace Servy.Core.Native
 
             try
             {
-                var oa = new LSA_OBJECT_ATTRIBUTES
-                {
-                    Length = Marshal.SizeOf<LSA_OBJECT_ATTRIBUTES>()
-                };
-                int status = LsaOpenPolicy(IntPtr.Zero, ref oa, POLICY_ACCESS.POLICY_LOOKUP_NAMES, out policy);
-                if (status != 0)
-                {
-                    var msg = GetWin32ErrorMessage(status);
-                    throw new InvalidOperationException($"LsaOpenPolicy failed: {msg} (NTSTATUS 0x{status:X})");
-                }
+                // Unified: Shared policy initialization block
+                policy = OpenPolicyOrThrow(POLICY_ACCESS.POLICY_LOOKUP_NAMES);
 
                 uint rightsCount = 0;
 
-                byte[] sidBytes = sid.GetBinaryForm();
+                // Unified: Shared SID HGlobal allocation block
+                sidPtr = AllocAndCopySid(sid);
 
-                // Allocate unmanaged memory for SID
-                sidPtr = Marshal.AllocHGlobal(sidBytes.Length);
-                Marshal.Copy(sidBytes, 0, sidPtr, sidBytes.Length);
-
-                status = LsaEnumerateAccountRights(policy, sidPtr, out rightsPtr, out rightsCount);
+                int status = LsaEnumerateAccountRights(policy, sidPtr, out rightsPtr, out rightsCount);
 
                 // STATUS_OBJECT_NAME_NOT_FOUND -> the account has *no* rights at all
-                if (status == unchecked((int)0xC0000034))
+                if (status == STATUS_OBJECT_NAME_NOT_FOUND)
                 {
                     return false;
                 }
@@ -181,11 +207,6 @@ namespace Servy.Core.Native
 
             try
             {
-                var oa = new LSA_OBJECT_ATTRIBUTES
-                {
-                    Length = Marshal.SizeOf<LSA_OBJECT_ATTRIBUTES>()
-                };
-
                 // Request only the minimal rights required to add account privileges.
                 // POLICY_LOOKUP_NAMES: To resolve SIDs/Names.
                 // POLICY_CREATE_ACCOUNT: To create the account entry in LSA if it doesn't exist.
@@ -194,13 +215,8 @@ namespace Servy.Core.Native
                                   POLICY_ACCESS.POLICY_CREATE_ACCOUNT |
                                   POLICY_ACCESS.POLICY_ASSIGN_PRIVILEGE;
 
-                int status = LsaOpenPolicy(IntPtr.Zero, ref oa, accessMask, out policy);
-
-                if (status != 0)
-                {
-                    var msg = GetWin32ErrorMessage(status);
-                    throw new InvalidOperationException($"LsaOpenPolicy failed: {msg} (NTSTATUS 0x{status:X})");
-                }
+                // Unified: Shared policy initialization block
+                policy = OpenPolicyOrThrow(accessMask);
 
                 buffer = Marshal.StringToHGlobalUni(SE_SERVICE_LOGON_NAME);
                 var lus = new LSA_UNICODE_STRING
@@ -211,13 +227,10 @@ namespace Servy.Core.Native
                 };
                 var rights = new[] { lus };
 
-                byte[] sidBytes = sid.GetBinaryForm();
+                // Unified: Shared SID HGlobal allocation block
+                sidPtr = AllocAndCopySid(sid);
 
-                // Allocate unmanaged memory for SID
-                sidPtr = Marshal.AllocHGlobal(sidBytes.Length);
-                Marshal.Copy(sidBytes, 0, sidPtr, sidBytes.Length);
-
-                status = LsaAddAccountRights(policy, sidPtr, rights, 1);
+                int status = LsaAddAccountRights(policy, sidPtr, rights, 1);
                 if (status != 0)
                 {
                     var msg = GetWin32ErrorMessage(status);
@@ -266,6 +279,5 @@ namespace Servy.Core.Native
             sid.GetBinaryForm(bytes, 0);
             return bytes;
         }
-
     }
 }

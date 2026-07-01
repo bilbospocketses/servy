@@ -4,14 +4,14 @@ using Servy.CLI.Commands;
 using Servy.CLI.Helpers;
 using Servy.CLI.Models;
 using Servy.CLI.Options;
-using Servy.CLI.Validators;
+using Servy.CLI.Validation;
 using Servy.Core.Config;
 using Servy.Core.Data;
 using Servy.Core.Helpers;
 using Servy.Core.Logging;
 using Servy.Core.Security;
 using Servy.Core.Services;
-using Servy.Core.Validators;
+using Servy.Core.Validation;
 using Servy.Infrastructure.Data;
 using Servy.Infrastructure.Helpers;
 using System.Diagnostics.CodeAnalysis;
@@ -57,16 +57,6 @@ namespace Servy.CLI
         private const string ResourcesNamespace = "Servy.CLI.Resources";
 
         /// <summary>
-        /// The singleton instance of <see cref="SecureData"/> used for cryptographic operations.
-        /// </summary>
-        /// <remarks>
-        /// This field holds sensitive AES and HMAC key material in memory. 
-        /// It must be explicitly disposed of during application shutdown to trigger 
-        /// strict memory-zeroing protocols via <see cref="System.Security.Cryptography.CryptographicOperations.ZeroMemory"/>.
-        /// </remarks>
-        private static SecureData? _secureData;
-
-        /// <summary>
         /// Parses command-line arguments, invokes the appropriate command handlers,
         /// and returns an exit code indicating the success or failure of the operation.
         /// </summary>
@@ -79,23 +69,36 @@ namespace Servy.CLI
                 // Hook Ctrl+C and Ctrl+Break
                 Console.CancelKeyPress += (s, e) =>
                 {
-                    e.Cancel = true; // Prevent immediate hard-kill
-                    cts.Cancel();
+                    if (!cts.IsCancellationRequested)
+                    {
+                        e.Cancel = true;          // first press: graceful cancellation
+                        cts.Cancel();
+                        Console.WriteLine("Cancelling... press Ctrl+C again to force exit.");
+                    }
+                    // second press: leave e.Cancel = false -> process terminates
                 };
 
                 IAppDbContext? dbContext = null;
                 ProtectedKeyProvider? protectedKeyProvider = null;
+                SecureData? secureData = null;
                 try
                 {
                     var verbs = GetVerbs();
                     var firstArg = args.Length > 0 ? args[0] : null;
 
-                    if (args.Length == 0 ||
-                        (!verbs.Any(v => string.Equals(v, firstArg, StringComparison.OrdinalIgnoreCase)) && !(firstArg?.StartsWith("-") ?? false)))
+                    if (args.Length == 0)
                     {
-                        // Only inject the default verb if the user didn't provide a recognized verb 
-                        // AND didn't provide a global flag like --version or --help
+                        // Explicitly inject the default help verb only when no commands or arguments are provided
                         args = (new[] { GetVerbName<HelpOptions>() }).Concat(args).ToArray();
+                    }
+                    else if (!verbs.Any(v => string.Equals(v, firstArg, StringComparison.OrdinalIgnoreCase)) && !(firstArg?.StartsWith("-") ?? false))
+                    {
+                        // Detect a mistyped or unrecognized command that does not start with a global flag dash
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.Error.WriteLine($"Error: Unknown command '{firstArg}'. See '--help' for available options.");
+                        Console.ResetColor();
+
+                        return (int)CliExitCode.Error;
                     }
 
                     args[0] = args[0].ToLowerInvariant();
@@ -126,8 +129,8 @@ namespace Servy.CLI
                                      $"Minimum required: {AppConfig.MinRequiredSqliteVersion} (CVE-2025-6965 mitigation).");
 
                         Console.ForegroundColor = ConsoleColor.Red;
-                        Console.WriteLine($"[CRITICAL] Vulnerable SQLite version detected: {detectedVersion}");
-                        Console.WriteLine($"This version of Servy requires SQLite {AppConfig.MinRequiredSqliteVersion}+.");
+                        Console.Error.WriteLine($"[CRITICAL] Vulnerable SQLite version detected: {detectedVersion}");
+                        Console.Error.WriteLine($"This version of Servy requires SQLite {AppConfig.MinRequiredSqliteVersion}+.");
                         Console.ResetColor();
 
                         // Exit with a CLI-specific sentinel instead of a SCM Win32 error code
@@ -138,10 +141,10 @@ namespace Servy.CLI
                     dbContext = new AppDbContext(connectionString);
                     var dapperExecutor = new DapperExecutor(dbContext);
                     protectedKeyProvider = new ProtectedKeyProvider(aesKeyFilePath, aesIVFilePath);
-                    _secureData = new SecureData(protectedKeyProvider);
+                    secureData = new SecureData(protectedKeyProvider);
                     var xmlSerializer = new XmlServiceSerializer();
                     var jsonSerializer = new JsonServiceSerializer();
-                    var serviceRepository = new ServiceRepository(dapperExecutor, _secureData, xmlSerializer, jsonSerializer);
+                    var serviceRepository = new ServiceRepository(dapperExecutor, secureData, xmlSerializer, jsonSerializer);
 
                     Func<string, IServiceControllerWrapper> controllerFactory = name => new ServiceControllerWrapper(name);
                     var serviceManager = new ServiceManager(
@@ -194,7 +197,7 @@ namespace Servy.CLI
                         var resourceHelper = new ResourceHelper(sh, processKiller);
 
                         // Copy service executable from embedded resources
-                        if (!await resourceHelper.CopyEmbeddedResource(asm, ResourcesNamespace, AppConfig.ServyServiceCLIFileName, "exe", true, true))
+                        if (!await resourceHelper.CopyEmbeddedResource(asm, ResourcesNamespace, AppConfig.ServyServiceCLIFileName, "exe", true, true, cancellationToken: cts.Token))
                         {
                             throw new InvalidOperationException($"Failed to extract embedded resource '{AppConfig.ServyServiceCLIExe}'. " +
                                 "CLI cannot start safely - see file log for details.");
@@ -204,16 +207,16 @@ namespace Servy.CLI
                         var handleExeFileName = RuntimeInformation.OSArchitecture == Architecture.Arm64
                             ? AppConfig.HandleExeARM64FileName
                             : AppConfig.HandleExeX64FileName;
-                        if (!await resourceHelper.CopyEmbeddedResource(asm, ResourcesNamespace, handleExeFileName, "exe", false))
+                        if (!await resourceHelper.CopyEmbeddedResource(asm, ResourcesNamespace, handleExeFileName, "exe", false, cancellationToken: cts.Token))
                         {
-                            Console.WriteLine($"Failed copying embedded resource: {handleExeFileName}");
+                            Logger.Warn($"Failed copying embedded resource: {handleExeFileName}; process-tree handle features may be degraded.");
                         }
 
 #if DEBUG
                         // Copy debug symbols from embedded resources (only in debug builds)
-                        if (!await resourceHelper.CopyEmbeddedResource(asm, ResourcesNamespace, AppConfig.ServyServiceCLIFileName, "pdb", false))
+                        if (!await resourceHelper.CopyEmbeddedResource(asm, ResourcesNamespace, AppConfig.ServyServiceCLIFileName, "pdb", false, cancellationToken: cts.Token))
                         {
-                            Console.WriteLine($"Failed copying embedded resource: {AppConfig.ServyServiceCLIFileName}.pdb");
+                            Logger.Warn($"Failed copying embedded resource: {AppConfig.ServyServiceCLIFileName}.pdb");
                         }
 #endif
                     }
@@ -271,12 +274,12 @@ namespace Servy.CLI
                 catch (Exception ex)
                 {
                     Logger.Error("An unexpected error occurred in the main execution flow.", ex);
-                    Console.WriteLine($"An unexpected error occurred: {ex.Message}");
+                    Console.Error.WriteLine($"An unexpected error occurred: {ex.Message}");
                     return (int)CliExitCode.Error;
                 }
                 finally
                 {
-                    TryRun(() => _secureData?.Dispose(), nameof(_secureData));
+                    TryRun(() => secureData?.Dispose(), nameof(secureData));
                     TryRun(() => protectedKeyProvider?.Dispose(), nameof(protectedKeyProvider));
                     TryRun(() => dbContext?.Dispose(), nameof(dbContext));
                     TryRun(Logger.Shutdown, nameof(Logger.Shutdown));

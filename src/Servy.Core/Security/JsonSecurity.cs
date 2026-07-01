@@ -1,4 +1,5 @@
 ﻿using Newtonsoft.Json;
+using Servy.Core.Config;
 
 namespace Servy.Core.Security
 {
@@ -10,10 +11,10 @@ namespace Servy.Core.Security
         /// <summary>
         /// A canonical settings object used for processing untrusted data, configured to prevent deep recursion, ignore metadata properties, and omit null values for cleaner output.
         /// </summary>
-        public static readonly JsonSerializerSettings UntrustedDataSettings = new JsonSerializerSettings
+        public static JsonSerializerSettings UntrustedDataSettings => new JsonSerializerSettings
         {
             TypeNameHandling = TypeNameHandling.None,
-            MaxDepth = 32,
+            MaxDepth = AppConfig.UntrustedJsonMaxDepth,
             MetadataPropertyHandling = MetadataPropertyHandling.Ignore,
             NullValueHandling = NullValueHandling.Ignore
         };

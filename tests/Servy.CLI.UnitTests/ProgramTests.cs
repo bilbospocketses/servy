@@ -1,14 +1,6 @@
 ﻿namespace Servy.CLI.UnitTests
 {
-    // 1. Establish a unique, non-parallelized execution collection domain for CLI tests
-    [CollectionDefinition("Servy.CLI.ConsoleTests", DisableParallelization = true)]
-    public class CliConsoleCollection : ICollectionFixture<object>
-    {
-        // Enforces strict sequential isolation across the execution suite
-    }
-
-    // 2. Explicitly bind the test class to the sequential execution collection
-    [Collection("Servy.CLI.ConsoleTests")]
+    [Collection("SequentialConsoleTests")]
     public class ProgramTests : IDisposable
     {
         private readonly string _tempConfigPath;
@@ -40,6 +32,39 @@
             File.WriteAllText(_tempConfigPath, mockConfigJson);
         }
 
+        #region Private Test Orchestration Helpers
+
+        /// <summary>
+        /// Encapsulates the console output redirection lifecycle to eliminate duplicate boilerplate blocks
+        /// across CLI execution integration test paths while protecting async background contexts.
+        /// </summary>
+        private async Task<(int ExitCode, string Output)> RunWithConsoleCaptureAsync(Func<Task<int>> actBlock)
+        {
+            var originalOut = Console.Out;
+
+            // Arrange: Keep a direct reference to the raw underlying StringWriter
+            using (var baseWriter = new StringWriter())
+            using (var synchronizedWriter = TextWriter.Synchronized(baseWriter))
+            {
+                try
+                {
+                    // Act
+                    Console.SetOut(synchronizedWriter);
+                    int exitCode = await actBlock();
+
+                    // Assert: Extract the text from the base StringWriter to bypass the SyncTextWriter proxy name
+                    string capturedOutput = baseWriter.ToString();
+                    return (exitCode, capturedOutput);
+                }
+                finally
+                {
+                    Console.SetOut(originalOut);
+                }
+            }
+        }
+
+        #endregion
+
         #region Console Validation Logic Branches
 
         [Fact]
@@ -61,117 +86,55 @@
         [Fact]
         public async Task Main_EmptyArguments_InjectsHelpVerbAndExitsWithSuccess()
         {
-            // 1. Capture the original writer so we can restore it later
-            var originalOut = Console.Out;
+            // Arrange
+            string[] emptyArgs = Array.Empty<string>();
 
-            // 2. Wrap the writer in a thread-safe synchronized boundary
-            using (var stringWriter = TextWriter.Synchronized(new StringWriter()))
+            // Act
+            var result = await RunWithConsoleCaptureAsync(async () =>
             {
-                try
-                {
-                    // 3. Redirect
-                    Console.SetOut(stringWriter);
+                return await Program.Main(emptyArgs);
+            });
 
-                    // 4. Act
-                    string[] emptyArgs = Array.Empty<string>();
-                    int exitCode = await Program.Main(emptyArgs);
-
-                    // 5. Assert
-                    Assert.Equal((int)CliExitCode.Success, exitCode);
-                }
-                finally
-                {
-                    // 6. Restore original output BEFORE leaving the using block to protect background async threads
-                    Console.SetOut(originalOut);
-                }
-            }
+            // Assert
+            // Match against the actual verbs listed in the auto-generated help index screen
+            Assert.Equal((int)CliExitCode.Success, result.ExitCode);
+            Assert.Contains("install", result.Output);
+            Assert.Contains("uninstall", result.Output);
         }
 
         [Fact]
         public async Task Main_HelpFlagProvided_ReturnsSuccessExitCode()
         {
-            // 1. Capture the original writer
-            var originalOut = Console.Out;
+            // Arrange
+            string[] args = { "--help" };
 
-            // 2. Synchronized allocation
-            using (var stringWriter = TextWriter.Synchronized(new StringWriter()))
+            // Act
+            var result = await RunWithConsoleCaptureAsync(async () =>
             {
-                try
-                {
-                    // 3. Redirect
-                    Console.SetOut(stringWriter);
+                return await Program.Main(args);
+            });
 
-                    // 4. Act
-                    string[] args = { "--help" };
-                    int exitCode = await Program.Main(args);
-
-                    // 5. Assert
-                    Assert.Equal((int)CliExitCode.Success, exitCode);
-                }
-                finally
-                {
-                    // 6. Restore
-                    Console.SetOut(originalOut);
-                }
-            }
-        }
-
-        [Fact]
-        public async Task Main_InvalidArgumentsProvided_ReturnsErrorExitCode()
-        {
-            // 1. Capture the original writer
-            var originalOut = Console.Out;
-
-            // 2. Synchronized allocation
-            using (var stringWriter = TextWriter.Synchronized(new StringWriter()))
-            {
-                try
-                {
-                    // 3. Redirect
-                    Console.SetOut(stringWriter);
-
-                    // 4. Act
-                    string[] args = { "install", "--unsupported-option" };
-                    int exitCode = await Program.Main(args);
-
-                    // 5. Assert
-                    Assert.Equal((int)CliExitCode.Error, exitCode);
-                }
-                finally
-                {
-                    // 6. Restore
-                    Console.SetOut(originalOut);
-                }
-            }
+            // Assert
+            // Match against the actual verbs listed in the auto-generated help index screen
+            Assert.Equal((int)CliExitCode.Success, result.ExitCode);
+            Assert.Contains("install", result.Output);
+            Assert.Contains("uninstall", result.Output);
         }
 
         [Fact]
         public async Task Main_QuietFlagProvided_AltersExecutionToQuietPath()
         {
-            // 1. Capture the original writer
-            var originalOut = Console.Out;
+            // Arrange
+            string[] args = { "status", "--quiet" };
 
-            // 2. Synchronized allocation
-            using (var stringWriter = TextWriter.Synchronized(new StringWriter()))
+            // Act
+            var result = await RunWithConsoleCaptureAsync(async () =>
             {
-                try
-                {
-                    // 3. Redirect
-                    Console.SetOut(stringWriter);
+                return await Program.Main(args);
+            });
 
-                    // 4. Act
-                    string[] args = { "status", "--quiet" };
-                    int exitCode = await Program.Main(args);
-
-                    // 5. Assert
-                    Assert.True(exitCode == (int)CliExitCode.Success || exitCode == (int)CliExitCode.Error);
-                }
-                finally
-                {
-                    // 6. Restore
-                    Console.SetOut(originalOut);
-                }
-            }
+            // Assert
+            Assert.True(result.ExitCode == (int)CliExitCode.Success || result.ExitCode == (int)CliExitCode.Error);
         }
 
         #endregion
@@ -181,30 +144,17 @@
         [Fact]
         public async Task Main_InvalidArguments_ReturnsErrorExitCode()
         {
-            // 1. Capture the original writer
-            var originalOut = Console.Out;
+            // Arrange
+            string[] args = { "install", "--corrupt-flag-combination" };
 
-            // 2. Synchronized allocation
-            using (var stringWriter = TextWriter.Synchronized(new StringWriter()))
+            // Act
+            var result = await RunWithConsoleCaptureAsync(async () =>
             {
-                try
-                {
-                    // 3. Redirect
-                    Console.SetOut(stringWriter);
+                return await Program.Main(args);
+            });
 
-                    // 4. Act
-                    string[] args = { "install", "--corrupt-flag-combination" };
-                    int exitCode = await Program.Main(args);
-
-                    // 5. Assert
-                    Assert.Equal((int)CliExitCode.Error, exitCode);
-                }
-                finally
-                {
-                    // 6. Restore
-                    Console.SetOut(originalOut);
-                }
-            }
+            // Assert
+            Assert.Equal((int)CliExitCode.Error, result.ExitCode);
         }
 
         #endregion

@@ -18,8 +18,8 @@ namespace Servy.Service.CommandLine
         /// Parses the specified array of command-line arguments into a <see cref="StartOptions"/> instance.
         /// </summary>
         /// <param name="serviceRepository">An instance of <see cref="IServiceRepository"/> used to retrieve service configuration from the database.</param>
-        /// <param name="fullArgs">An array of strings representing the command-line arguments.</param>
         /// <param name="processHelper">The process helper used to format process commands.</param>
+        /// <param name="fullArgs">An array of strings representing the command-line arguments.</param>
         /// <returns>
         /// A <see cref="StartOptions"/> object populated with values parsed from the input arguments.
         /// Missing or invalid values will be set to default values.
@@ -61,8 +61,8 @@ namespace Servy.Service.CommandLine
                 EnableConsoleUI = serviceDto.EnableConsoleUI ?? AppConfig.DefaultEnableConsoleUI,
 
                 // Logging
-                StdOutPath = serviceDto.StdoutPath,
-                StdErrPath = serviceDto.StderrPath,
+                StdoutPath = serviceDto.StdoutPath,
+                StderrPath = serviceDto.StderrPath,
                 RotationSizeInBytes = AppConfig.ToBytes(serviceDto.RotationSize ?? AppConfig.DefaultRotationSizeMB), // Convert from MB to Bytes
                 UseLocalTimeForRotation = serviceDto.UseLocalTimeForRotation ?? AppConfig.DefaultUseLocalTimeForRotation,
 
@@ -166,7 +166,7 @@ namespace Servy.Service.CommandLine
             {
                 return EnvironmentVariableParser.Parse(raw ?? string.Empty);
             }
-            catch (Exception ex) when (ex is FormatException || ex is ArgumentException || ex is ArgumentOutOfRangeException)
+            catch (Exception ex) when (ex is FormatException || ex is ArgumentException)
             {
                 Logger.Error(
                     $"Service '{serviceName}': stored {fieldName} value is malformed and could not be parsed " +

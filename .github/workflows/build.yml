@@ -2,7 +2,7 @@
 # GitHub Actions Workflow - Build Matrix
 # ------------------------------------------------------------------------------------------
 # Builds and validates the Servy .NET solution across both x64 and ARM64 target platforms
-# natively on native Windows host environments.
+# natively on matching Windows host runners (no emulation).
 # ==========================================================================================
 
 name: build
@@ -42,9 +42,6 @@ jobs:
       - name: Setup .NET
         uses: ./.github/actions/setup-dotnet
 
-      - name: Check .NET version
-        run: dotnet --version
-
       - name: Restore dependencies
         run: dotnet restore Servy.sln
 
@@ -68,19 +65,12 @@ jobs:
           foreach ($proj in $projects) {
             Write-Host "Restoring $proj for $runtime..."
             dotnet restore $proj --runtime $runtime
-            if ($LASTEXITCODE -ne 0) {
-                Write-Error "Restore failed for $proj"
-                exit $LASTEXITCODE
-            }
+            if ($LASTEXITCODE -ne 0) { throw "Restore failed for $proj (exit $LASTEXITCODE)" }
           }
 
           foreach ($proj in $projects) {
             Write-Host "Building $proj ($config) for $runtime..."
-            # Explicitly tracks matrix parameters for un-emulated native optimization outputs
+            # Build per-project with an explicit RID so each matrix leg produces native (x64/ARM64) binaries
             dotnet build $proj --configuration $config --runtime $runtime --no-restore
-            
-            if ($LASTEXITCODE -ne 0) { 
-                Write-Error "Build failed for $proj"
-                exit $LASTEXITCODE 
-            }
+            if ($LASTEXITCODE -ne 0) { throw "Build failed for $proj (exit $LASTEXITCODE)" }
           }

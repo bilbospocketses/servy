@@ -8,21 +8,18 @@ using Servy.Resources;
 using Servy.Services;
 using Servy.UI.Bootstrapping;
 using Servy.UI.Services;
-using Servy.Validators;
+using Servy.Validation;
 using Servy.ViewModels;
 using Servy.Views;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-#if !DEBUG
-using System.Diagnostics;
-#endif
 using System.IO;
 using System.Windows;
 using Servy.Config;
 using AppConfig = Servy.Core.Config.AppConfig;
 using Servy.Core.Helpers;
 using Microsoft.Extensions.DependencyInjection;
-using Servy.Core.Validators;
+using Servy.Core.Validation;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Servy
@@ -248,7 +245,7 @@ namespace Servy
 
         #endregion
 
-        #region Events
+        #region Application Lifecycle
 
         /// <summary>
         /// Called when the WPF application starts.
@@ -279,7 +276,7 @@ namespace Servy
             // 3. Fire-and-forget initialization
             // Use a dedicated async method instead of a chained ContinueWith 
             // to ensure the startup lifecycle and any faults are correctly observed.
-            _ = _bootstrapper.InitializeAppWithFaultHandlingAsync(this, e, Config.AppConfig.Caption);
+            _ = _bootstrapper.InitializeAppWithFaultHandlingAsync(this, e, Config.UiAppConfig.Caption);
         }
 
         /// <summary>
