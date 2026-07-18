@@ -6,6 +6,12 @@ updates:
     schedule:
       interval: "daily"
     open-pull-requests-limit: 0 # Only security alerts, no automated version updates
+    # open-pull-requests-limit governs VERSION updates only; security PRs still fire.
+    # Group them so a multi-package security advisory lands as ONE PR, not several.
+    groups:
+      nuget-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   # 2. Monitor GitHub Actions for security only
   - package-ecosystem: "github-actions"
@@ -13,3 +19,7 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 0 # Only security alerts, no automated version updates
+    groups:
+      actions-security:
+        applies-to: security-updates
+        patterns: ["*"]
